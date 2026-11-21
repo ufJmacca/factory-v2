@@ -9,12 +9,10 @@ from factory.evidence import Evidence, digest, encode
 
 BOT = "delivery-engineer"
 CLI_BUILD = "codex-cli 0.162.1"
-MODEL = "gpt-5.4"
-REASONING = "medium"
 TOOLS = ("workspace.read", "workspace.edit", "workspace.test", "submission.create")
 FIELDS = {
     "on_event", "workflow", "runtime_profile", "instructions", "skills", "tools",
-    "timeout_minutes", "max_attempts",
+    "timeout_minutes", "max_attempts", "model", "reasoning_effort",
 }
 
 
@@ -44,6 +42,10 @@ def resolve(repo: Path, revision: str, store: Evidence) -> dict:
         require(profile["on_event"] == "outcome.approved" and profile["workflow"] == "deliver-outcome",
                 "unsupported event or workflow")
         require(profile["runtime_profile"] == "codex-cli-chatgpt", "unsupported runtime")
+        model = profile["model"]
+        require(isinstance(model, str) and re.fullmatch(r"gpt-[a-z0-9.-]+", model),
+                "invalid Codex model")
+        require(profile["reasoning_effort"] in ("low", "medium", "high"), "invalid reasoning effort")
         require(isinstance(profile["instructions"], str) and 0 < len(profile["instructions"]) <= 4096,
                 "invalid instructions")
         tools = profile["tools"]
@@ -75,6 +77,6 @@ def resolve(repo: Path, revision: str, store: Evidence) -> dict:
     return {
         "schema_version": 1, "factory_sha": revision, "bot": BOT,
         "profile": profile, "profile_digest": digest(encode(profile)), "source_digest": store.blob(source),
-        "skills": files, "tools": list(TOOLS), "cli_build": CLI_BUILD, "model": MODEL,
-        "reasoning_effort": REASONING, "auth_mode": "chatgpt", "api_fallback": False,
+        "skills": files, "tools": list(TOOLS), "cli_build": CLI_BUILD, "model": profile["model"],
+        "reasoning_effort": profile["reasoning_effort"], "auth_mode": "chatgpt", "api_fallback": False,
     }

@@ -59,7 +59,7 @@ def grade(store, request, grader, fixture_root, fixture_run):
 
 def main(args):
     run_id = validate_run_id(args.run_id)
-    if not args.approved_by.strip() or not 1 <= args.minutes <= 30:
+    if not args.approved_by.strip() or not 1 <= args.minutes <= 30 or not 1 <= args.attempts <= 2:
         raise ValueError("record maintainer approval and a cap of at most 30 minutes")
     root = args.evidence.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -72,7 +72,7 @@ def main(args):
     admission = {
         "schema_version": 1, "run_id": run_id, "approved_by": args.approved_by, "outcome": OUTCOME,
         "target": "ufJmacca/factory-v2", "base_sha": args.base, "factory_sha": args.factory_sha,
-        "grader_digest": args.grader_sha, "fixture_run": args.fixture_run, "cap_minutes": args.minutes,
+        "grader_digest": args.grader_sha, "fixture_run": args.fixture_run, "cap_minutes": args.minutes, "cap_attempts": args.attempts,
     }
     with store.lock(run_id):
         store.record(run_id, "approval", admission)
@@ -93,7 +93,7 @@ def main(args):
                 "base_checkpoint": store.blob(encode(seed(ROOT, args.base))),
                 "deadline_epoch": time() + min(args.minutes, profile["profile"]["timeout_minutes"]) * 60,
                 "started_at": datetime.now(timezone.utc).isoformat(),
-                "max_attempts": profile["profile"]["max_attempts"],
+                "max_attempts": min(args.attempts, profile["profile"]["max_attempts"]),
             })
     compose(project, env, "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "outcome-worker")
     try:
@@ -127,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--factory-sha", required=True)
     parser.add_argument("--approved-by", required=True)
     parser.add_argument("--minutes", type=int, default=30)
+    parser.add_argument("--attempts", type=int, default=2)
     parser.add_argument("--grader", type=Path, required=True)
     parser.add_argument("--grader-sha", required=True)
     parser.add_argument("--evidence", type=Path, required=True)
