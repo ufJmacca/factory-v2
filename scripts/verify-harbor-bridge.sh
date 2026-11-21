@@ -70,6 +70,12 @@ if [ -z "${BRIDGE_RESUME_ROOT:-}" ]; then
 fi
 image=$(docker image inspect "$project-codex-workspace" --format '{{.Id}}')
 worker=$(docker image inspect "$project-outcome-worker" --format '{{.Id}}')
+if [ -n "${BRIDGE_RESUME_ROOT:-}" ]; then
+    worker=$("${FACTORY_HOST_PYTHON:-python3.12}" -c \
+        'import json, sys; print(json.load(open(sys.argv[1]))["runtime"]["worker_image"])' \
+        "$BRIDGE_ROOT/runs/bridge/common.json")
+    docker tag "$worker" "$project-outcome-worker"
+fi
 runner prepare "$BRIDGE_ROOT" "$(cat "$BRIDGE_ROOT/factory-sha.txt")" "$image" "$worker" "$mode"
 credential_dir=${BRIDGE_CREDENTIAL_DIR:-"$HOME/.codex-hub-client"}
 if [ "$mode" = live ]; then credential_dir=$(dirname "$BRIDGE_HUB_KEY_FILE"); fi
