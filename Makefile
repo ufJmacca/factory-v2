@@ -5,3 +5,8 @@ test:
 
 verify-fixtures:
 	./scripts/verify-fixtures.sh
+
+.PHONY: verify-recovery
+
+verify-recovery:
+	./scripts/verify-recovery.sh
