@@ -59,3 +59,17 @@ evidence mount. Set `WORKER_IMAGE` to the image ID in the run's `request.json`.
 docker run --rm --network none --read-only -v "$EVIDENCE_DIR:/retained:ro" \
     "$WORKER_IMAGE" python -m factory.outcome_worker reopen /retained "$RUN_ID"
 ```
+
+If the grader failed during setup after the engineer submitted, recover the
+verification against the saved commit. Use the same records archive. Recovery
+does not launch Codex and uses the grader bytes pinned at admission.
+
+```sh
+PYTHONPATH=src python3.12 -m factory.reverify_codex "$RUN_ID" \
+    --evidence "$EVIDENCE_DIR" --fixture "$RECORDS_ARCHIVE"
+```
+
+Recovery writes `runs/<run-id>/verification-recovery.json` and keeps the
+original terminal manifest. To check both records, build the current worker
+image and use it in the read-only reopen command with
+`verification-recovery` after `"$RUN_ID"`.

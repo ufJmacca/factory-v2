@@ -68,6 +68,7 @@ def capture(repo: Path, base_sha: str) -> dict:
 
 
 def restore(repo: Path, snapshot: dict) -> str:
+    repo = repo.parent.resolve() / repo.name
     repo.mkdir(parents=True)
     try:
         with TemporaryDirectory() as directory:

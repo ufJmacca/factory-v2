@@ -43,7 +43,8 @@ class Workspace:
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m,mode=1777",
             "--tmpfs", "/work:rw,nosuid,nodev,size=256m,mode=0755",
             "--env", "HOME=/tmp", "--env", "GIT_CONFIG_NOSYSTEM=1",
-            "--env", "GIT_CONFIG_GLOBAL=/dev/null", image, "sleep", "infinity",
+            "--env", "GIT_CONFIG_GLOBAL=/dev/null", "--env", "TAR_OPTIONS=--no-same-owner",
+            image, "sleep", "infinity",
         )
         try:
             self.internal("restore", input=encode(snapshot))

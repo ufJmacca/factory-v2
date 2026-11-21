@@ -40,9 +40,9 @@ def compose(project, env, *args, capture=False):
     ).stdout
 
 
-def grade(store, request, grader, fixture_root, fixture_run):
+def grade(store, request, grader, fixture_root, fixture_run, *, receipt="verify"):
     run_id = request["run_id"]
-    if (result := store.read(run_id, "verify")) is not None:
+    if (result := store.read(run_id, receipt)) is not None:
         return result
     submission = store.read(run_id, "submission")
     snapshot = json.loads(store.read_blob(submission["checkpoint"]))
@@ -53,7 +53,7 @@ def grade(store, request, grader, fixture_root, fixture_run):
     namespace = {}
     exec(compile(grader, "<pinned acceptance check>", "exec"), namespace)
     verdict = namespace["acceptance"](request, snapshot, fixture_root, fixture_run)
-    return store.record(run_id, "verify", {
+    return store.record(run_id, receipt, {
         "reason": verdict["decision"], "verdict": store.blob(encode(verdict)),
         "bundle": store.blob(decode(snapshot["bundle"])),
     })
