@@ -1,0 +1,24 @@
+services:
+  outcome-worker:
+    build:
+      context: .
+      dockerfile: grading/Dockerfile
+      target: delivery-worker
+    command: ["python", "-m", "factory.outcome_worker", "worker"]
+    init: true
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      OUTCOME_EVIDENCE: /outcome-evidence
+    networks: [recovery]
+    volumes:
+      - ${OUTCOME_EVIDENCE_ROOT:?Set OUTCOME_EVIDENCE_ROOT}:/outcome-evidence
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  codex-workspace:
+    build:
+      context: .
+      dockerfile: grading/Dockerfile
+      target: codex-workspace
+    network_mode: none
