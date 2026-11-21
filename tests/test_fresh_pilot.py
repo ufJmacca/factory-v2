@@ -1,14 +1,16 @@
 from copy import deepcopy
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from factory.evidence import Conflict, digest, encode
+from evaluation.harbor.pilot_freeze import verify_calibration
+from factory.evidence import Conflict, Evidence, digest, encode
 from factory.fresh_pilot import assignment_rows, require_approval
 from factory.harbor_experiment import LIVE_ENVELOPE, plan_digest
-from factory.harbor_receipt import workspace_proof_digest
+from factory.harbor_receipt import ISOLATION_CHECKS, workspace_proof_digest
 
 
 def pilot_design():
@@ -72,3 +74,36 @@ class FreshPilotTest(unittest.TestCase):
         wrong = {**proof, "command_receipt": {**proof["command_receipt"], "container": "foreign"}}
         with self.assertRaises(Conflict):
             workspace_proof_digest(request, 1, wrong, {**marker, "workspace_proof": digest(encode(wrong))}, provider)
+
+    def test_calibration_must_fail_the_named_check_on_each_negative_control(self):
+        with TemporaryDirectory() as directory:
+            store = Evidence(Path(directory))
+            grader = store.blob(b"grader")
+            checks = {"contract": True, "regression": True}
+            revisions = {"known": "b" * 40, "base": "a" * 40, "regression": "c" * 40}
+
+            def control(case, verdict):
+                sha = revisions[case]
+                accepted = all(verdict.values())
+                grade = store.blob(encode({
+                    "submitted_sha": sha, "grader_digest": grader, "checks": verdict,
+                    "status": "accepted" if accepted else "rejected",
+                    "isolation": dict.fromkeys(ISOLATION_CHECKS, True),
+                }))
+                return {"case": case, "sha": sha, "accepted": accepted, "grade": grade}
+
+            task = {
+                "base_sha": revisions["base"], "grader_digest": grader, "grade_checks": list(checks),
+                "staged": {case: {"sha": sha} for case, sha in revisions.items()},
+                "calibration_expectations": {
+                    "known": {"accepted": True, "required_pass": list(checks), "required_fail": []},
+                    "base": {"accepted": False, "required_pass": [], "required_fail": ["contract"]},
+                    "regression": {"accepted": False, "required_pass": [], "required_fail": ["regression"]},
+                },
+                "calibration": [control("known", checks), control("base", {**checks, "contract": False}),
+                                control("regression", {**checks, "regression": False})],
+            }
+            verify_calibration(store, task)
+            task["calibration"][-1] = control("regression", {**checks, "contract": False})
+            with self.assertRaises(Conflict):
+                verify_calibration(store, task)
