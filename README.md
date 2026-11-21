@@ -69,3 +69,9 @@ The check makes zero subscription model calls.
 
 The [live delivery guide](docs/collect-codex-delivery.md) covers the
 maintainer-approved subscription run and its evidence.
+
+## Follow a product PR through review
+
+Run `make verify-product` to reproduce PR reconciliation, approval deadlines,
+and fixture deployment. See the [product delivery guide](docs/collect-product-delivery.md)
+for live authorization, exact-revision review, and evidence recovery.
