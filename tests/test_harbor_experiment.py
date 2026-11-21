@@ -82,3 +82,58 @@ class HarborExperimentTest(unittest.TestCase):
         self.assertEqual(terminal(self.store, row, stopped), terminal(self.store, row, stopped))
         with self.assertRaises(Conflict):
             terminal(self.store, row, {"disposition": "accepted", "attempt": {"job": "other"}})
+
+    def fresh_pilot(self, *, mechanism_pairs=2, historical_pass=True, historical_complete=True,
+                    acceptance_gain=True, acceptance_loss=False):
+        plan = []
+        for pair, task in enumerate(["verified-patch", *(f"upstream-{i}" for i in range(1, 9))]):
+            for arm in ("baseline", "candidate"):
+                row = {"id": f"p09-{len(plan) + 1:02d}", "task": task, "pair": 1, "arm": arm}
+                plan.append(row)
+                if pair == 0 and arm == "candidate" and not historical_complete:
+                    continue
+                passed = not ((pair == 0 and not historical_pass)
+                              or (pair == 1 and arm == "baseline" and acceptance_gain)
+                              or (pair == 3 and arm == "candidate" and acceptance_loss))
+                grade = "accepted" if passed else "rejected"
+                terminal(self.store, row, {"disposition": grade, "attempt": {
+                    "cost_usd": None, "scored": True, "accepted": passed, "evidence_complete": True, "grade": grade,
+                    "workspace_rejections": 2 if arm == "baseline" and 0 < pair <= mechanism_pairs else 0,
+                }})
+        return plan
+
+    def test_fresh_pilot_reports_scoped_review_eligibility(self):
+        plan = self.fresh_pilot()
+        result = report(self.store, plan, live=True, fresh_pilot=True)
+        self.assertEqual(result["decision"], "eligible_for_review")
+        self.assertEqual(result["historical"]["totals"]["accepted"], 2)
+        self.assertEqual(result["held_out"]["acceptance_gain"], 1)
+        self.assertEqual(result["held_out"]["mechanism"]["pairs_with_fewer_rejections"], 2)
+        self.assertEqual(result["held_out"]["acceptance_pairs"], {
+            "candidate_only": 1, "baseline_only": 0, "both_accepted": 7, "both_rejected": 0,
+            "one_sided_sign_probability": 0.5,
+        })
+        self.assertEqual(report(self.store, plan, fresh_pilot=True)["decision"], "hold")
+
+    def test_fresh_pilot_holds_when_one_task_accounts_for_the_reduction(self):
+        plan = self.fresh_pilot(mechanism_pairs=1)
+        result = report(self.store, plan, live=True, fresh_pilot=True)
+        self.assertEqual(result["decision"], "hold")
+        self.assertEqual(result["held_out"]["mechanism"]["rejection_reduction"], 2)
+
+    def test_fresh_pilot_holds_when_the_historical_control_fails(self):
+        plan = self.fresh_pilot(historical_pass=False)
+        self.assertEqual(report(self.store, plan, live=True, fresh_pilot=True)["decision"], "hold")
+
+    def test_fresh_pilot_holds_on_a_code_tie(self):
+        plan = self.fresh_pilot(acceptance_gain=False)
+        self.assertEqual(report(self.store, plan, live=True, fresh_pilot=True)["decision"], "hold")
+
+    def test_fresh_pilot_holds_when_required_data_is_missing(self):
+        plan = self.fresh_pilot(historical_complete=False)
+        result = report(self.store, plan, live=True, fresh_pilot=True)
+        self.assertEqual((result["decision"], result["scored"], result["planned"]), ("hold", 17, 18))
+
+    def test_fresh_pilot_rejects_a_scored_regression_even_if_another_pair_is_incomplete(self):
+        plan = self.fresh_pilot(historical_complete=False, acceptance_loss=True)
+        self.assertEqual(report(self.store, plan, live=True, fresh_pilot=True)["decision"], "reject")
