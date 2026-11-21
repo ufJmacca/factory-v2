@@ -50,6 +50,14 @@ os.kill(os.getpid(), signal.SIGKILL)
         result = self.run_script("import time; time.sleep(30)", seconds=0.2)
         self.assertEqual(result["reason"], "deadline_exceeded")
 
+    def test_elapsed_deadline_does_not_launch_the_cli(self):
+        result = run_cli(
+            [str(self.root / "should-not-be-launched")], self.root, {}, b"",
+            self.root / "events.jsonl", time.time() - 1,
+        )
+        self.assertEqual(result["reason"], "deadline_exceeded")
+        self.assertIsNone(result["exit_code"])
+
     def test_explicit_subscription_failures_and_no_fallback(self):
         for index, (message, reason) in enumerate((
             ("You have hit your usage limit", "quota_exhausted"),
