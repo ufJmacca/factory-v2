@@ -15,3 +15,8 @@ verify-recovery:
 
 verify-codex:
 	./scripts/verify-codex.sh
+
+.PHONY: verify-product
+
+verify-product:
+	./scripts/verify-product.sh
