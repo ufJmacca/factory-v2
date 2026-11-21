@@ -20,13 +20,18 @@ def verify_calibration(store, task):
         raise Conflict("offline control revisions differ from the staged task")
     for case, accepted in CONTROL_VERDICTS.items():
         row = cases[case]
+        expectation = task["calibration_expectations"][case]
         grade = json.loads(store.read_blob(row["grade"]))
         checks = grade["checks"]
-        if (row["accepted"] is not accepted or grade["submitted_sha"] != row["sha"]
+        if (row["accepted"] is not accepted or expectation["accepted"] is not accepted
+                or (not accepted and not expectation["required_fail"])
+                or grade["submitted_sha"] != row["sha"] or row["sha"] != task["staged"][case]["sha"]
                 or grade["status"] != ("accepted" if accepted else "rejected")
                 or grade["grader_digest"] != task["grader_digest"]
                 or set(checks) != set(task["grade_checks"])
                 or any(type(value) is not bool for value in checks.values()) or all(checks.values()) != accepted
+                or any(checks.get(name) is not True for name in expectation["required_pass"])
+                or any(checks.get(name) is not False for name in expectation["required_fail"])
                 or any(grade["isolation"].get(name) is not True for name in ISOLATION_CHECKS)):
             raise Conflict("offline control grade differs from the frozen acceptance contract")
 

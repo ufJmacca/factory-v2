@@ -74,7 +74,6 @@ class WorkspaceProof:
                 raise
 
     def establish(self, argv):
-        # The first call and both marker operations have stable IDs so a lost reply can be read again.
         call_id = f"proof-{self.attempt}-command"
         pending = self.binding.records.read(self.run_id, f"call-{call_id}")
         first_argv = pending["argv"] if pending is not None else argv
