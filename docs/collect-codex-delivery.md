@@ -53,11 +53,9 @@ remains under `runs/<run-id>/manifest.json`. Find the local native event stream
 in `runs/<run-id>/attempt-1.jsonl`. The manifest indexes the content-addressed
 copy, the checkpoint, the independent verdict, and the exact submission bundle
 under `blobs/<sha256>`. Reopen the manifest after cleanup with a read-only
-evidence mount.
+evidence mount. Set `WORKER_IMAGE` to the image ID in the run's `request.json`.
 
 ```sh
-docker compose run --rm --no-deps -T \
-    -v "$EVIDENCE_DIR:/retained:ro" -e PYTHONPATH=/workspace/src workspace \
-    uv run --locked --offline --extra recovery python -m factory.outcome_worker \
-    reopen /retained "$RUN_ID"
+docker run --rm --network none --read-only -v "$EVIDENCE_DIR:/retained:ro" \
+    "$WORKER_IMAGE" python -m factory.outcome_worker reopen /retained "$RUN_ID"
 ```
