@@ -47,11 +47,13 @@ class ProposalTest(unittest.TestCase):
     def test_retry_changes_only_an_extra_argument(self):
         command = "cat tests/test_recovery.py"
         failed = completed("item_9", {"command": command, "a": 1}, "invalid workspace command")
-        def retry(new_command, exit_code):
-            return completed("item_10", {"command": new_command}, json.dumps({"exit_code": exit_code,
-                              "output": "fixture", "truncated": False}))
 
-        self.assertEqual(workspace_retry(failed + retry(command, 0), 1, 2), ("item_9", "item_10"))
+        def retry(new_command, exit_code):
+            result = {"exit_code": exit_code, "output": "fixture", "truncated": False}
+            return completed("item_10", {"command": new_command}, json.dumps(result))
+
+        pair = workspace_retry(failed + retry(command, 0), 1, 2)
+        self.assertEqual([(call.line, call.item_id) for call in pair], [(1, "item_9"), (2, "item_10")])
         self.assertIsNone(workspace_retry(failed + retry("git status", 0), 1, 2))
         self.assertIsNone(workspace_retry(failed + retry(command, 1), 1, 2))
         self.assertIsNone(workspace_retry(failed + retry(command, 0), 2, 1))

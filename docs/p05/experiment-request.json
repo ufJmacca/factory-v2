@@ -1,0 +1,58 @@
+{
+  "baseline": {
+    "bot": "delivery-engineer",
+    "factory_commit": "63ff5b1264197c5f9e92e7d6fb32d78528064cf2",
+    "selector_sha256": "15b702c3970428b8560e45627d618f42466f23cfb3e2e202022c588f49052a28",
+    "skill_sha256": "9239a0a7300d5dc82aca0a6f97ff3edaa05b5c0e79a21fb26a5c02cb307ade67"
+  },
+  "candidate_manifest_sha256": "d5360ff0552866d3a1e6184320bbb78704222a355d4ea2285f55110705a36ba2",
+  "changed_input": {
+    "baseline_sha256": "9239a0a7300d5dc82aca0a6f97ff3edaa05b5c0e79a21fb26a5c02cb307ade67",
+    "candidate_sha256": "e24d70d44a2cb8beb878ca84ef5e32bb7805770af2aae7759f70270964aa795e",
+    "path": ".agents/skills/delivery-evidence/SKILL.md"
+  },
+  "dispatch_authorized": false,
+  "fixed_inputs": {
+    "auth_mode": "chatgpt",
+    "cli_build": "codex-cli 0.162.1",
+    "grader_sha256": "abf95a8ec118ca35b8de210d3b9fb02d480af6dbec5bab9d2b974638a311aec7",
+    "model": "gpt-6.2-sol",
+    "outcome_sha256": "6589b5ee399c2e5a64cc2581de76bfcb407c9b583e552046e4e109539b67eacc",
+    "reasoning_effort": "medium",
+    "task_base": "31f67b2ea40d4fa4570b26dd9b175e9fe423f416",
+    "task_base_checkpoint": "84ab56a5202d21d19bbe1e66f4a46a7f379308b11ea08739bcea92f3a988e1ec",
+    "task_contract_sha256": "399ae9e79c4bd11da28271ac5e2da1478504c5cf900d655ba893d445da54bef8",
+    "task_role": "historical_tuning",
+    "task_run_id": "pr03-proxy-final",
+    "tools": [
+      "workspace.read",
+      "workspace.edit",
+      "workspace.test",
+      "submission.create"
+    ],
+    "transport_kind": "cli-proxy",
+    "transport_sha256": "1c431ee48823cc7d70a8cfdfdbe30cbab97cfbef89d1a3578038047b38298c01",
+    "worker_image": "sha256:a68596d3249fdb2d3610f64880144ae6896d8fbb60142f533fc5f193ba334849",
+    "workspace_image": "sha256:6621a6299aee68953236679ccd22c2f88a390934b02bf40de49b020480cd130c"
+  },
+  "id": "p05-e65fad04f49575f8586ca5e517f3537a57d0fa08b956c4b72eddfdd6b47d5d32-experiment",
+  "incomplete_result": "Inconclusive if a required trace or grade is missing.",
+  "limits": {
+    "max_attempts_per_arm": 1,
+    "max_concurrent_runs": 1,
+    "max_minutes_per_arm": 28
+  },
+  "max_regression_count": 0,
+  "pairs": 3,
+  "prediction": {
+    "disproves": "The candidate records as many or more rejections than the baseline across the three pairs.",
+    "expected": "At least one fewer rejection in the candidate arm across three completed pairs.",
+    "metric": "count of initial workspace calls rejected for extra argument keys",
+    "required_regression_check": "Every candidate submission passes the frozen grader on its exact revision."
+  },
+  "producer": "propose-correction",
+  "proposal_id": "p05-e65fad04f49575f8586ca5e517f3537a57d0fa08b956c4b72eddfdd6b47d5d32",
+  "proposal_sha256": "cb74b75928f126c5240721bdf1ca71cc5a0d791696a309128136c5665fa2ca2b",
+  "recorded_at": "2026-11-21T05:26:10.430936+00:00",
+  "schema_version": 1
+}

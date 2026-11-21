@@ -1,0 +1,92 @@
+{
+  "activation_decision": "separate",
+  "affected_skill": ".agents/skills/delivery-evidence/SKILL.md",
+  "baseline": {
+    "bot": "delivery-engineer",
+    "factory_commit": "63ff5b1264197c5f9e92e7d6fb32d78528064cf2",
+    "selector_sha256": "15b702c3970428b8560e45627d618f42466f23cfb3e2e202022c588f49052a28",
+    "skill_sha256": "9239a0a7300d5dc82aca0a6f97ff3edaa05b5c0e79a21fb26a5c02cb307ade67"
+  },
+  "candidate_manifest_sha256": "d5360ff0552866d3a1e6184320bbb78704222a355d4ea2285f55110705a36ba2",
+  "cause": "The workspace bridge rejected an extra argument before running the shell command.",
+  "comparison_diagnosis": "success",
+  "competing_explanation": "Request generation or transport may have added the field. The trace cannot distinguish them.",
+  "diagnosis": "tool_failure",
+  "event_pointers": [
+    {
+      "artifact": "attempt-1.jsonl",
+      "item_id": "item_9",
+      "line": 19,
+      "run_id": "pr03-proxy-final",
+      "sha256": "d5329eccdb036c4da69778a880db948d34df0023899aaf03bb45f61b9b99f987"
+    },
+    {
+      "artifact": "attempt-1.jsonl",
+      "item_id": "item_10",
+      "line": 21,
+      "run_id": "pr03-proxy-final",
+      "sha256": "d5329eccdb036c4da69778a880db948d34df0023899aaf03bb45f61b9b99f987"
+    }
+  ],
+  "experiment_request_id": "p05-e65fad04f49575f8586ca5e517f3537a57d0fa08b956c4b72eddfdd6b47d5d32-experiment",
+  "id": "p05-e65fad04f49575f8586ca5e517f3537a57d0fa08b956c4b72eddfdd6b47d5d32",
+  "observations": [
+    {
+      "followed": null,
+      "instruction_correct": null,
+      "loaded": null,
+      "outcome_defined": true,
+      "present": true,
+      "required": true,
+      "resolved": true,
+      "success": false,
+      "tool_failed": true
+    },
+    {
+      "followed": null,
+      "instruction_correct": null,
+      "loaded": null,
+      "outcome_defined": true,
+      "present": true,
+      "required": true,
+      "resolved": true,
+      "success": true,
+      "tool_failed": false
+    }
+  ],
+  "operator_feedback": {
+    "pointer": "/feedback/0",
+    "record": "product-manifest.json",
+    "run_id": "pr03-proxy-final",
+    "sha256": "b6b0e1e8c866bc023073edda28eaf3f635dfda5df1489cc704c0182b5e385bdd"
+  },
+  "prediction": {
+    "disproves": "The candidate records as many or more rejections than the baseline across the three pairs.",
+    "expected": "At least one fewer rejection in the candidate arm across three completed pairs.",
+    "metric": "count of initial workspace calls rejected for extra argument keys",
+    "required_regression_check": "Every candidate submission passes the frozen grader on its exact revision."
+  },
+  "producer": "propose-correction",
+  "recorded_at": "2026-11-21T05:26:10.430936+00:00",
+  "reproduction": {
+    "rejected_before_execution": true,
+    "retry_exit_code": 0,
+    "workspace_executions": 1
+  },
+  "review_state": "pending",
+  "risk": "The tool already declares the schema. Repeating it in the skill may have no effect.",
+  "schema_version": 1,
+  "skill_cause": "unknown",
+  "skill_provenance": {
+    "configuration_sha256": "80be52faee381d6c6bf16c928c36b132cd514e6773bfd9301fb33e01e6725d9b",
+    "model_context": "unknown",
+    "present_in_reconstructed_prompt": true,
+    "run_id": "pr03-proxy-final",
+    "skill_sha256": "9239a0a7300d5dc82aca0a6f97ff3edaa05b5c0e79a21fb26a5c02cb307ade67"
+  },
+  "source_factory_commit": "1f06b6edf6ee9af7b1aed51eb697ecc0c85cce30",
+  "source_run_ids": [
+    "pr03-proxy-final"
+  ],
+  "status": "reproduced"
+}

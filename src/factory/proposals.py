@@ -17,7 +17,9 @@ from factory.codex_evidence import reopen
 from factory.delivery_steps import require
 from factory.evidence import Conflict, digest, encode, publish
 from factory.product import reopen_product
-from factory.proposal_evidence import Observation, READ_COMMAND, REJECTED, ReadOnlyArchive, diagnose, workspace_retry
+from factory.proposal_evidence import (
+    Observation, READ_COMMAND, REJECTED, ReadOnlyArchive, WorkspaceCall, diagnose, workspace_retry,
+)
 
 
 RUN = "pr03-proxy-final"
@@ -38,7 +40,7 @@ class PilotEvidence:
     task: dict
     profile: dict
     checkpoint: dict
-    arguments: tuple[dict, dict]
+    calls: tuple[WorkspaceCall, WorkspaceCall]
     pointers: tuple[dict, dict]
     feedback_pointer: dict
     recorded_at: str
@@ -61,12 +63,10 @@ def load_pilot(product: ReadOnlyArchive, codex: ReadOnlyArchive) -> PilotEvidenc
     reference = source["attempt-1_events"]
     require(reference == manifest["artifacts"]["attempt-1_events"], "native trace does not match the product")
     events = codex.read_blob(reference)
-    ids = workspace_retry(events, REJECTED_LINE, RETRY_LINE)
-    require(ids is not None, "no verified rejected workspace call and successful retry")
-    offsets = (REJECTED_LINE, RETRY_LINE)
+    calls = workspace_retry(events, REJECTED_LINE, RETRY_LINE)
+    require(calls is not None, "no verified rejected workspace call and successful retry")
     pointers = tuple({"run_id": RUN, "artifact": "attempt-1.jsonl", "sha256": reference,
-                      "line": line, "item_id": item_id} for line, item_id in zip(offsets, ids, strict=True))
-    arguments = tuple(json.loads(events.splitlines()[line - 1])["item"]["arguments"] for line in offsets)
+                      "line": call.line, "item_id": call.item_id} for call in calls)
 
     feedback = observation["feedback"]
     require(isinstance(feedback, list) and feedback and feedback[0]["revision"] == manifest["submitted_sha"],
@@ -78,7 +78,7 @@ def load_pilot(product: ReadOnlyArchive, codex: ReadOnlyArchive) -> PilotEvidenc
             "reproduction checkpoint differs from the approved task base")
     require(codex.read_blob(profile["skills"][SKILL]) in prompt(codex, task, profile),
             "the original prompt does not contain the resolved skill")
-    return PilotEvidence(source, task, profile, checkpoint, arguments, pointers, feedback_pointer,
+    return PilotEvidence(source, task, profile, checkpoint, calls, pointers, feedback_pointer,
                          manifest["completed_at"])
 
 
@@ -95,21 +95,19 @@ class ReplayWorkspace:
         return {"exit_code": result.returncode, "output": "", "truncated": False}
 
 
-def reproduce(archive: ReadOnlyArchive, evidence: PilotEvidence) -> dict:
+def reproduce(evidence: PilotEvidence) -> dict:
     with TemporaryDirectory() as directory:
         root = Path(directory) / "product"
         restore(root, evidence.checkpoint)
         workspace = ReplayWorkspace(root)
-        bridge = Bridge(archive, RUN, workspace, evidence.task["base_sha"])
+        bridge = Bridge(ReadOnlyArchive(Path(directory)), RUN, workspace, evidence.task["base_sha"])
         try:
-            bridge.call("workspace", evidence.arguments[0])
+            bridge.call("workspace", evidence.calls[0].arguments)
         except Conflict as error:
             require(str(error) == REJECTED and workspace.calls == 0, "different workspace rejection")
         else:
             raise Conflict("the workspace no longer rejects the observed arguments")
-        # Replay before submission while retaining the original archive as the evidence source.
-        bridge = Bridge(ReadOnlyArchive(Path(directory)), RUN, workspace, evidence.task["base_sha"])
-        retry = bridge.call("workspace", evidence.arguments[1])
+        retry = bridge.call("workspace", evidence.calls[1].arguments)
         require(retry["exit_code"] == 0 and workspace.calls == 1, "the comparison replay did not succeed")
     return {"rejected_before_execution": True, "retry_exit_code": 0, "workspace_executions": 1}
 
@@ -161,7 +159,13 @@ def propose(evidence: PilotEvidence, revision: str, skill: bytes, selector: byte
         "diagnosis": finding["diagnosis"], "status": "reproduced",
         "cause": "The workspace bridge rejected an extra argument before running the shell command.",
         "competing_explanation": "Request generation or transport may have added the field. The trace cannot distinguish them.",
-        "skill_cause": "unknown", "observations": [asdict(failed), asdict(control)],
+        "skill_cause": "unknown",
+        "skill_provenance": {
+            "run_id": RUN, "configuration_sha256": evidence.source["configuration"],
+            "skill_sha256": evidence.profile["skills"][SKILL], "present_in_reconstructed_prompt": True,
+            "model_context": "unknown",
+        },
+        "observations": [asdict(failed), asdict(control)],
         "comparison_diagnosis": diagnose(control), "reproduction": reproduction, "affected_skill": SKILL,
         "baseline": baseline, "candidate_manifest_sha256": digest(encode(manifest)),
         "experiment_request_id": f"{finding_id}-experiment",
@@ -176,13 +180,17 @@ def propose(evidence: PilotEvidence, revision: str, skill: bytes, selector: byte
         "fixed_inputs": {
             "task_role": "historical_tuning", "task_run_id": RUN,
             "task_base": evidence.task["base_sha"], "task_base_checkpoint": evidence.source["base_checkpoint"],
+            "task_contract_sha256": digest(encode(evidence.task)),
             "outcome_sha256": digest(evidence.task["outcome"].encode()), "grader_sha256": evidence.source["grader"],
             "cli_build": evidence.profile["cli_build"], "model": evidence.profile["model"],
             "reasoning_effort": evidence.profile["reasoning_effort"],
-            "auth_mode": evidence.profile["auth_mode"], "workspace_image": evidence.task["workspace_image"],
+            "auth_mode": evidence.profile["auth_mode"],
+            "transport_kind": evidence.task["transport"]["kind"],
+            "transport_sha256": digest(encode(evidence.task["transport"])),
+            "workspace_image": evidence.task["workspace_image"],
             "worker_image": evidence.task["worker_image"], "tools": evidence.profile["tools"],
         },
-        "pairs": 3, "limits": {"max_attempts_per_arm": 1, "max_minutes_per_arm": evidence.task["cap_minutes"],
+        "pairs": 3, "max_regression_count": 0, "limits": {"max_attempts_per_arm": 1, "max_minutes_per_arm": evidence.task["cap_minutes"],
                                "max_concurrent_runs": 1},
         "prediction": prediction, "incomplete_result": "Inconclusive if a required trace or grade is missing.",
         "dispatch_authorized": False,
@@ -209,14 +217,16 @@ def main() -> None:
     args = parser.parse_args()
     try:
         output = args.output.resolve(strict=True)
-        protected = [Path.cwd().resolve(), args.product_archive.resolve(), args.codex_archive.resolve(),
-                     args.baseline_archive.resolve().parent]
+        protected = [
+            Path(__file__).resolve().parents[2], args.product_archive.resolve(),
+            args.codex_archive.resolve(), args.baseline_archive.resolve().parent,
+        ]
         require(output.is_dir() and all(not output.is_relative_to(path) and not path.is_relative_to(output)
                                         for path in protected), "proposal output must be an isolated directory")
         product, codex = ReadOnlyArchive(args.product_archive), ReadOnlyArchive(args.codex_archive)
         evidence = load_pilot(product, codex)
         skill, selector = baseline_inputs(args.baseline_archive, args.baseline)
-        replay = reproduce(codex, evidence)
+        replay = reproduce(evidence)
         print(publish_proposal(output, propose(evidence, args.baseline, skill, selector, replay)))
     except (ValueError, OSError, KeyError, IndexError, TypeError, TarError, subprocess.SubprocessError) as error:
         parser.exit(1, f"proposal unavailable ({type(error).__name__})\n")

@@ -1,0 +1,11 @@
+diff --git a/.agents/skills/delivery-evidence/SKILL.md b/.agents/skills/delivery-evidence/SKILL.md
+--- a/.agents/skills/delivery-evidence/SKILL.md
++++ b/.agents/skills/delivery-evidence/SKILL.md
+@@ -7,3 +7,7 @@
+ failing test by itself and record the red check. Commit the implementation and record
+ the same check at green. Make any useful refactor, record your decision, and submit a
+ clean commit. The parent delivery workflow runs the independent acceptance check.
++
++Send the workspace tool exactly one argument, `command`. Put the entire
++shell command in that string, including multiline scripts. Omit every other
++field. If the tool rejects the arguments, check the field names before retrying.

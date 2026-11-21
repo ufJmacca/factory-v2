@@ -58,7 +58,14 @@ READ_COMMAND = "cat tests/test_recovery.py"
 REJECTED = "invalid workspace command"
 
 
-def workspace_retry(events: bytes, rejected_line: int, retry_line: int) -> tuple[str, str] | None:
+@dataclass(frozen=True)
+class WorkspaceCall:
+    line: int
+    item_id: str
+    arguments: dict
+
+
+def workspace_retry(events: bytes, rejected_line: int, retry_line: int) -> tuple[WorkspaceCall, WorkspaceCall] | None:
     lines = events.splitlines()
     if not 1 <= rejected_line < retry_line <= len(lines):
         return None
@@ -75,6 +82,12 @@ def workspace_retry(events: bytes, rejected_line: int, retry_line: int) -> tuple
             or wrong["arguments"] != {**expected, "a": 1}):
         return None
     rejected, accepted = (item["result"]["content"][0]["text"] for item in (wrong, right))
-    if rejected != REJECTED or json.loads(accepted).get("exit_code") != 0:
+    if rejected != REJECTED or right.get("error") is not None:
         return None
-    return wrong["id"], right["id"]
+    result = json.loads(accepted)
+    if result.get("exit_code") != 0 or result.get("truncated") is not False:
+        return None
+    return (
+        WorkspaceCall(rejected_line, wrong["id"], wrong["arguments"]),
+        WorkspaceCall(retry_line, right["id"], right["arguments"]),
+    )

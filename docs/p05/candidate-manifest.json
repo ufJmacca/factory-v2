@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "bot": "delivery-engineer",
+    "factory_commit": "63ff5b1264197c5f9e92e7d6fb32d78528064cf2",
+    "selector_sha256": "15b702c3970428b8560e45627d618f42466f23cfb3e2e202022c588f49052a28",
+    "skill_sha256": "9239a0a7300d5dc82aca0a6f97ff3edaa05b5c0e79a21fb26a5c02cb307ade67"
+  },
+  "diff_sha256": "44e98393967eaf4581acb7b045f0a9af40fff4a9ba0aea089a4530ce61d83fbd",
+  "path": ".agents/skills/delivery-evidence/SKILL.md",
+  "producer": "propose-correction",
+  "recorded_at": "2026-11-21T05:26:10.430936+00:00",
+  "schema_version": 1,
+  "sha256": "e24d70d44a2cb8beb878ca84ef5e32bb7805770af2aae7759f70270964aa795e"
+}
