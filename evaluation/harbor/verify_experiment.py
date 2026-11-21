@@ -9,9 +9,11 @@ from urllib.parse import urlencode
 
 from temporalio.client import Client, WorkflowExecutionStatus
 
+from evaluation.harbor.pilot_freeze import pilot_manifest
 from evaluation.harbor.prepare import HERE, record_tree
 from factory.evidence import Conflict, Evidence, digest, encode, publish
-from factory.harbor_binding import Binding
+from factory.fresh_pilot import require_approval
+from factory.harbor_binding import Binding, TRUSTED_WORKSPACE_MARKER
 from factory.harbor_experiment import (
     LIVE_ENVELOPE, ORDER_SEED, REPETITIONS, THRESHOLDS, assignment_plan, plan_digest,
     report, terminal, workspace_rejections,
@@ -26,7 +28,12 @@ RUN = "experiment"
 DRAIN = 100
 
 
-def freeze(store, mode):
+def freeze(store, mode, *, fresh_pilot=False):
+    if fresh_pilot:
+        manifest = pilot_manifest(store, mode)
+        store.record(RUN, "frozen", manifest)
+        publish(store.root / "experiment.json", encode(manifest))
+        return manifest
     configuration = store.read(RUN, "configuration", required=True)
     tasks = store.read(RUN, "tasks", required=True)
     split_bytes = (HERE / "split.json").read_bytes()
@@ -81,6 +88,14 @@ def verify_inputs(store, task, arm):
     for reference in (profile["source_digest"], *profile["skills"].values()):
         store.read_blob(reference)
 
+
+def verify_pilot_inputs(store, task, arm, checkpoint):
+    if not Path(task["task"]).resolve().is_relative_to(store.root.resolve()):
+        raise Conflict("fresh pilot task escaped the trusted evidence root")
+    verify_inputs(store, task, arm)
+    base = json.loads(store.read_blob(checkpoint))
+    if base["base_sha"] != task["base_sha"] or base["head_sha"] != task["base_sha"]:
+        raise Conflict("fresh pilot base checkpoint differs from the staged task")
 
 
 async def recover_stopped(api, client, store, name, intent):
@@ -166,14 +181,22 @@ def attempt_record(store, name):
 
 async def drive(store, manifest, action):
     live = manifest["mode"] == "live"
+    fresh_pilot = manifest["schema_version"] == 2
     envelope = manifest["envelope"]
     frozen = plan_digest(manifest)
     if live:
         approval = store.read(RUN, "approval", required=True)
-        if approval["digest"] != frozen or approval["envelope"] != envelope or not approval["approved_by"].strip():
+        if fresh_pilot:
+            require_approval(manifest, approval)
+        elif approval["digest"] != frozen or approval["envelope"] != envelope or not approval["approved_by"].strip():
             raise Conflict("live approval must bind the frozen experiment and envelope")
     clock = store.read(RUN, "clock")
     if clock is None:
+        if live and fresh_pilot:
+            configuration = manifest["configuration"]
+            for task_id, task in manifest["tasks"].items():
+                for arm in configuration["arms"].values():
+                    verify_pilot_inputs(store, task, arm, configuration["base_checkpoints"][task_id])
         clock = store.record(RUN, "clock", {"deadline": time() + envelope["batch_seconds"]})
     deadline = clock["deadline"]
     client = await Client.connect(os.environ["TEMPORAL_ADDRESS"])
@@ -189,6 +212,8 @@ async def drive(store, manifest, action):
         if prior:
             if (prior.get("attempt") or {}).get("runner_disposition") == "quota_exhausted":
                 exhausted = "subscription_quota"
+            if fresh_pilot and prior.get("batch_stop"):
+                exhausted = prior["batch_stop"]
             continue
         started = store.read(name, "harbor-intent")
         stop = exhausted or ("deadline" if time() + DRAIN >= deadline else None)
@@ -204,12 +229,13 @@ async def drive(store, manifest, action):
         config = manifest["configuration"]
         arm = config["arms"][arm_name]
         common = {
-            **arm, "schema_version": 1, "max_attempts": 1, "workspace_marker": True,
+            **arm, "schema_version": 1, "max_attempts": 1,
+            "workspace_marker": TRUSTED_WORKSPACE_MARKER if fresh_pilot else True,
             "base_sha": task["base_sha"], "base_checkpoint": config["base_checkpoints"][task_id],
             "transport": config["transport"],
         }
         fault = None
-        if not live and arm_name == "candidate":
+        if not live and not fresh_pilot and arm_name == "candidate":
             fault = {"checks": {"unexpected": True}} if task_id == "verified-patch" else (
                 {"grader_digest": "0" * 64} if task_id == "profile-preview" else None)
         trial_api = GradeDrill(token, fault) if fault else api
@@ -219,8 +245,18 @@ async def drive(store, manifest, action):
         handle = None
         disposition = None
         reason = None
+        if fresh_pilot:
+            try:
+                verify_pilot_inputs(store, task, arm, common["base_checkpoint"])
+            except (Conflict, FileNotFoundError, KeyError) as error:
+                exhausted = "frozen_input_drift"
+                await recover_stopped(api, client, store, name, started)
+                terminal(store, row, {"disposition": "failed", "reason": str(error), "batch_stop": exhausted,
+                                      "attempt": attempt_record(store, name)})
+                continue
         try:
-            verify_inputs(store, task, arm)
+            if not fresh_pilot:
+                verify_inputs(store, task, arm)
             request, handle = await launch(
                 trial_api, client, store, name, frozen=lock, common=common,
                 minutes=envelope["execution_seconds"] / 60, deadline_limit=deadline,
@@ -242,6 +278,8 @@ async def drive(store, manifest, action):
             store.record(request["run_id"], "verify", {"reason": "harbor_invalid_grade"})
             await asyncio.wait_for(handle.result(), timeout=20)
             disposition, reason = "invalid_grade", str(error)
+            if fresh_pilot:
+                exhausted = "invalid_protected_grade"
         except (Conflict, KeyError, TimeoutError) as error:
             intent = store.read(name, "harbor-intent")
             if intent and not store.read(name, "harbor-rollout"):
@@ -251,16 +289,26 @@ async def drive(store, manifest, action):
         attempt = attempt_record(store, name)
         if attempt and attempt["runner_disposition"] == "quota_exhausted":
             exhausted = "subscription_quota"
+        if fresh_pilot and attempt and attempt["runner_disposition"] in {
+            "pinned_configuration_unavailable", "runner_infrastructure_failed", "workspace_marker_missing",
+        }:
+            exhausted = "trusted_workspace_proof_failed"
         if disposition is None:
             disposition = ("accepted" if attempt and attempt["accepted"] else
                            "rejected" if attempt and attempt["scored"] and attempt["grade"] == "rejected"
                            else "incomplete")
-        terminal(store, row, {"disposition": disposition, "reason": reason, "attempt": attempt})
+        result = {"disposition": disposition, "reason": reason, "attempt": attempt}
+        if fresh_pilot and exhausted:
+            result["batch_stop"] = exhausted
+        terminal(store, row, result)
 
-    result = report(store, plan, live=live)
+    result = report(store, plan, live=live, fresh_pilot=fresh_pilot)
     if result["dispositions"].get("pending", 0):
         raise Conflict("experiment stopped with unreconciled assignments")
-    if not live and not stop_file.exists():
+    if not live and not stop_file.exists() and fresh_pilot:
+        if result["dispositions"] != {"accepted": 2, "stopped": 16}:
+            raise Conflict(f"fresh scripted pilot disagrees with expectations: {result['dispositions']}")
+    if not live and not stop_file.exists() and not fresh_pilot:
         duplicate = store.read(scripted[0], "harbor-duplicate", required=True)
         recovered = store.read(scripted[0], "harbor-job", required=True)
         faults = {row["task"]: row["reason"] for row in result["assignments"] if row["disposition"] == "invalid_grade"}
@@ -289,17 +337,21 @@ async def drive(store, manifest, action):
 async def main():
     os.umask(0o077)
     store = Evidence(Path(os.environ["BRIDGE_ROOT"]))
-    action, mode = sys.argv[1:]
+    action, mode, *variant = sys.argv[1:]
+    if variant and variant != ["fresh-pilot"]:
+        raise Conflict("invalid comparison variant")
+    fresh_pilot = bool(variant)
     if action == "freeze":
-        manifest = freeze(store, mode)
-        if mode == "live":
+        manifest = freeze(store, mode, fresh_pilot=fresh_pilot)
+        if mode == "live" and not fresh_pilot:
             store.record(RUN, "approval", {
                 "approved_by": os.environ["PHASE08_APPROVED_BY"], "digest": plan_digest(manifest),
                 "envelope": manifest["envelope"],
             })
     else:
         manifest = store.read(RUN, "frozen", required=True)
-        if mode != manifest["mode"] or action not in ("run", "lose-reply") or (action == "lose-reply" and mode == "live"):
+        if (manifest["schema_version"] != (2 if fresh_pilot else 1) or mode != manifest["mode"]
+                or action not in ("run", "lose-reply") or (action == "lose-reply" and mode == "live")):
             raise Conflict("invalid comparison mode or action")
         with store.lock(RUN):
             await drive(store, manifest, action)

@@ -25,6 +25,14 @@ THRESHOLDS = {
     "scope": "pilot",
     "uncertainty": "Two independent held-out tasks cannot establish promotion generality.",
 }
+FRESH_PILOT_THRESHOLDS = {
+    "historical_assignments_accepted": 2,
+    "held_out_max_acceptance_regressions": 0,
+    "held_out_min_acceptance_gain": 1,
+    "held_out_min_rejection_reduction": 2,
+    "held_out_min_pairs_with_fewer_rejections": 2,
+    "required_scored_coverage": 1.0,
+}
 
 
 def assignment_plan(batch, tasks, repetitions):
@@ -138,7 +146,8 @@ def fresh_pilot_decision(historical, mechanism):
     if len(historical) != 1 or not all(historical[0][key] for key in ("baseline_accepted", "candidate_accepted")):
         return "hold", "Both historical control assignments must pass."
     reduction = mechanism["rejection_reduction"]
-    if reduction is None or reduction < 2 or mechanism["pairs_with_fewer_rejections"] < 2:
+    if (reduction is None or reduction < FRESH_PILOT_THRESHOLDS["held_out_min_rejection_reduction"]
+            or mechanism["pairs_with_fewer_rejections"] < FRESH_PILOT_THRESHOLDS["held_out_min_pairs_with_fewer_rejections"]):
         return "hold", "The reduction in extra-argument rejections did not meet the held-out rule."
     return "eligible_for_review", "The pilot met its quality and workspace-rejection gates for scoped review."
 
@@ -159,18 +168,21 @@ def report(store, plan, *, live=False, fresh_pilot=False):
     if held_out and all(pair["complete"] for pair in held_out):
         held_out_gain = sum(pair["candidate_accepted"] - pair["baseline_accepted"] for pair in held_out)
     prediction = "inconclusive"
-    if historical_delta is not None:
+    if fresh_pilot:
+        prediction = "historical_control"
+    elif historical_delta is not None:
         prediction = "supported" if (historical_delta >= THRESHOLDS["historical_min_rejection_reduction"]
                                      and all(p["candidate_accepted"] for p in tuning)) else "disproved"
     summary = totals(rows)
     effects = paired_effects(held_out) if fresh_pilot else {}
+    thresholds = FRESH_PILOT_THRESHOLDS if fresh_pilot else THRESHOLDS
     if not live:
         decision, reason = "hold", "Scripted trials exercise the comparison path. Live quality evidence is pending."
     elif any(pair["acceptance_regression"] for pair in held_out):
         decision, reason = "reject", "A scored held-out pair regressed from acceptance to rejection."
     elif summary["evidence_complete"] != len(plan):
         decision, reason = "hold", "Required exact-SHA grading coverage is incomplete."
-    elif held_out_gain is None or held_out_gain < THRESHOLDS["held_out_min_acceptance_gain"]:
+    elif held_out_gain is None or held_out_gain < thresholds["held_out_min_acceptance_gain"]:
         decision, reason = "hold", "The minimum held-out acceptance gain was not demonstrated."
     elif fresh_pilot:
         decision, reason = fresh_pilot_decision(tuning, effects["mechanism"])

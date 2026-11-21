@@ -4,6 +4,7 @@ import re
 from factory.checkpoint import decode
 from factory.evidence import Conflict, digest, encode
 from factory.fixture import Ledger, validate_receipt
+from factory.harbor_binding import TRUSTED_WORKSPACE_MARKER, WORKSPACE_CWD
 
 
 ISOLATION_CHECKS = (
@@ -61,8 +62,35 @@ def trajectory(native, run_id, profile, usage):
     }
 
 
+def workspace_proof_digest(request, attempt, proof, marker, provider):
+    rollout = request["evaluation"]["rollout"]
+    proof_digest = digest(encode(proof))
+    expected_marker = f"{request['run_id']}:{attempt}"
+    if (proof.get("rollout") != rollout or proof.get("attempt") != attempt
+            or proof.get("marker") != expected_marker or marker.get("marker") != expected_marker
+            or marker.get("assigned_workspace") is not True or marker.get("workspace_proof") != proof_digest):
+        raise Conflict("Harbor export requires the assigned workspace proof")
+    scope = {"rollout": rollout, "attempt": attempt, "cwd": WORKSPACE_CWD, "container": provider["container"]}
+    for suffix, operation in (("command", "workspace-command"), ("write", "marker-write"), ("read", "marker-read")):
+        if proof.get(f"{suffix}_receipt") != {**scope, "operation": operation, "call_id": f"proof-{attempt}-{suffix}"}:
+            raise Conflict("Harbor workspace proof does not match the provider command and marker receipts")
+    final_read = marker.get("postflight_receipt", {})
+    if (not isinstance(final_read.get("call_id"), str) or not final_read["call_id"]
+            or final_read != {**scope, "operation": "marker-postflight", "call_id": final_read["call_id"]}):
+        raise Conflict("Harbor workspace proof does not match the provider postflight receipt")
+    return proof_digest
+
+
 def export_submission(store, request, workspace, attempt):
     run_id = request["run_id"]
+    proof = {}
+    if request.get("workspace_marker") == TRUSTED_WORKSPACE_MARKER:
+        number = attempt["attempt"]
+        key = f"attempt-{number}"
+        proof = {"workspace_proof": workspace_proof_digest(
+            request, number, store.read(run_id, f"{key}-workspace-proof", required=True),
+            store.read(run_id, f"{key}-marker", required=True), store.read(run_id, "provider-start", required=True),
+        ), "workspace_proof_attempt": number}
     submission = store.read(run_id, "submission", required=True)
     snapshot = json.loads(store.read_blob(submission["checkpoint"]))
     if any(snapshot[name] for name in ("index_patch", "working_patch", "untracked")):
@@ -91,7 +119,7 @@ def export_submission(store, request, workspace, attempt):
     partial = {
         **store.read(run_id, "dispatch-verify", required=True), **request["evaluation"],
         "submitted_sha": submission["head_sha"], "runtime": request["runtime"],
-        "usage": usage, "cost_usd": attempt["billing"], "artifacts": artifacts,
+        "usage": usage, "cost_usd": attempt["billing"], "artifacts": artifacts, **proof,
     }
     return store.record(run_id, "harbor-export", partial)
 
@@ -160,6 +188,13 @@ def fixture_claim(grade, verdict):
 def reopen_harbor(store, request, manifest, artifacts):
     export, verdict, fixture = (json.loads(artifacts[name]) for name in
                                 ("harbor-export", "harbor-grade", "harbor-fixture"))
+    if request.get("workspace_marker") == TRUSTED_WORKSPACE_MARKER:
+        number = export["workspace_proof_attempt"]
+        key = f"attempt-{number}"
+        proof = workspace_proof_digest(request, number, json.loads(artifacts[f"{key}-workspace-proof"]),
+                                       json.loads(artifacts[f"{key}-marker"]), json.loads(artifacts["provider-start"]))
+        if proof != export["workspace_proof"]:
+            raise Conflict("retained Harbor workspace proof differs from the export")
     grade = json.loads(store.read_blob(verdict["protected_grade"]))
     lock = json.loads(store.read_blob(verdict["job_lock"]))
     if (lock["trials"][0]["task"]["digest"] != verdict["harbor_task_lock"]):

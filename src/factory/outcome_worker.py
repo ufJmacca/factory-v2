@@ -57,7 +57,7 @@ class OutcomeActivities:
             "grader": request["grader_digest"],
         }
         attempts = [f"attempt-{n}{suffix}" for n in range(1, request["max_attempts"] + 1)
-                    for suffix in ("", "-intent", "-workspace", "-marker")]
+                    for suffix in ("", "-intent", "-workspace", "-marker", "-workspace-proof")]
         for name in ("investigation", "red", "green", "refactor", "submission", *attempts):
             if (record := self.store.read(run_id, name)) is not None:
                 artifacts[name] = self.store.blob(encode(record))
