@@ -53,6 +53,7 @@ def compare_profiles(baseline, candidate, path, before, after):
 def workspace_rejections(native):
     completed = set()
     failures = 0
+    rejected_command = None
     for line in native.splitlines():
         event = json.loads(line)
         if event["type"] != "item.completed":
@@ -65,14 +66,17 @@ def workspace_rejections(native):
         completed.add(item["id"])
         args = item.get("arguments")
         text = (item.get("result") or {}).get("content", [])
-        if (isinstance(args, dict) and "command" in args and len(args) > 1
-                and any(row.get("text") == REJECTED for row in text)):
-            failures += 1
+        command = args.get("command") if isinstance(args, dict) else None
+        if isinstance(command, str) and len(args) > 1 and any(row.get("text") == REJECTED for row in text):
+            failures += command != rejected_command
+            rejected_command = command
+        else:
+            rejected_command = None
     return failures
 
 
 def terminal(store, assignment, result):
-    return store.record(assignment["id"], "experiment-terminal", {**assignment, **result})
+    return store.record(assignment["id"], "experiment-terminal", {**result, **assignment})
 
 
 def totals(rows):
@@ -84,6 +88,7 @@ def totals(rows):
     return {
         "planned": len(rows), "attempts": len(attempts), "accepted": accepted,
         "scored": sum(attempt["scored"] for attempt in attempts),
+        "evidence_complete": sum(attempt.get("evidence_complete", False) for attempt in attempts),
         "dispositions": dict(Counter(row["disposition"] for row in rows)),
         "cost": {
             "known_attempt_subtotal_usd": sum(billed) if billed else None,
@@ -96,13 +101,13 @@ def totals(rows):
 def pair_result(left, right):
     by_arm = {row["arm"]: row for row in (left, right)}
     baseline, candidate = (by_arm[arm]["attempt"] or {} for arm in ARMS)
-    complete = all(attempt.get("scored") for attempt in (baseline, candidate))
+    complete = all(attempt.get("evidence_complete") for attempt in (baseline, candidate))
     rejected_calls = [attempt.get("workspace_rejections") for attempt in (baseline, candidate)]
     return {
         "task": left["task"], "pair": left["pair"],
         "assignments": {arm: row["id"] for arm, row in by_arm.items()},
         "complete": complete,
-        "acceptance_regression": bool(complete and baseline["accepted"] and not candidate["accepted"]),
+        "acceptance_regression": bool(complete and baseline["accepted"] and candidate.get("grade") == "rejected"),
         "candidate_accepted": candidate.get("accepted"),
         "baseline_rejected_calls": rejected_calls[0], "candidate_rejected_calls": rejected_calls[1],
     }
@@ -129,7 +134,7 @@ def report(store, plan, *, live=False):
         decision, reason = "hold", "Scripted trials exercise the comparison path. Live quality evidence is pending."
     elif any(pair["acceptance_regression"] for pair in held_out):
         decision, reason = "reject", "A scored held-out pair regressed from acceptance to rejection."
-    elif summary["scored"] != len(plan):
+    elif summary["evidence_complete"] != len(plan):
         decision, reason = "hold", "Required exact-SHA grading coverage is incomplete."
     else:
         decision, reason = "hold", THRESHOLDS["uncertainty"]

@@ -35,3 +35,8 @@ verify-harbor:
 
 verify-harbor-bridge:
 	./scripts/verify-harbor-bridge.sh
+
+.PHONY: verify-harbor-experiment
+
+verify-harbor-experiment:
+	./scripts/verify-harbor-experiment.sh

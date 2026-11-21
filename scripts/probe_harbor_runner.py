@@ -1,6 +1,7 @@
 """Trusted-host driver for the pinned CLI during the bridge verification."""
 import argparse
 from contextlib import ExitStack, contextmanager
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -58,7 +59,10 @@ def prepare(store, sha, image, worker, live):
 
 def calls_for(store, request):
     base = request["base_sha"]
-    bundle = store.root / "calibration" / "known-solution.bundle"
+    task = request.get("evaluation", {}).get("task_id", "verified-patch")
+    historical = task == "verified-patch"
+    bundle = (store.root / "calibration/known-solution.bundle" if historical
+              else store.root / "controls" / task / "known.bundle")
     with TemporaryDirectory() as directory:
         checkout = Path(directory)
         git(checkout, "init")
@@ -67,8 +71,18 @@ def calls_for(store, request):
     encoded = base64_encode(patch_bytes)
     marker = request["run_id"]
     ready = store.read(marker, "harbor-ready")
-    hold = " && sleep 20" if ready else ""
+    hold = " && sleep 20" if ready and "task_id" not in request["evaluation"] else ""
     test = "import importlib.util\nassert importlib.util.find_spec('factory.verified_patch')\n"
+    if not historical:
+        path = {"profile-preview": "src/factory/agent_profile.py",
+                "rpc-unknown-operation": "src/factory/local_rpc.py"}[task]
+        with TemporaryDirectory() as directory:
+            checkout = Path(directory)
+            git(checkout, "init")
+            git(checkout, "fetch", str(bundle), "refs/heads/submission")
+            expected = sha256(git(checkout, "show", f"FETCH_HEAD:{path}")).hexdigest()
+        test = ("from hashlib import sha256\nfrom pathlib import Path\n"
+                f"assert sha256(Path({path!r}).read_bytes()).hexdigest() == {expected!r}\n")
     verbose = (
         "import sys; from pathlib import Path; "
         "sys.stdout.write('x' * 1_000_000); sys.stdout.flush(); "
@@ -85,6 +99,8 @@ def calls_for(store, request):
         ("milestone", {"phase": "red", "note": "The module is missing on the base.",
                        "argv": ["python", "-IB", "-c", "import sys; sys.path.insert(0,'src'); exec(open('tests/bridge_red.py').read())"]}),
     ]
+    if request.get("evaluation", {}).get("scripted_rejection"):
+        tools.insert(0, ("workspace", {"command": "git status --short", "extra": 1}))
     for offset in range(0, len(encoded), 4000):
         tools.append(("workspace", {"command": f"printf %s {quote(encoded[offset:offset + 4000])} >> /tmp/bridge.patch64"}))
     tools.extend([
@@ -152,6 +168,13 @@ def run_one(store, run_id, cli, sentinel, records):
 def inspect_scope(store, run_id, proof, ident):
     instance = json.loads(subprocess.check_output(["docker", "inspect", ident]))[0]
     config = instance["HostConfig"]
+    request = store.read(run_id, "request")
+    spec = (request or {}).get("evaluation", {})
+    if "task_id" in spec and (
+        instance["Image"] != request["workspace_image"] or config["PidsLimit"] != 64
+        or config["NanoCpus"] != 10**9 or config["Memory"] != 512 * 1024**2
+    ):
+        raise Conflict("trial image or resources differ from the frozen experiment")
     mounts = {mount["Destination"]: mount for mount in instance["Mounts"] if mount["Type"] != "tmpfs"}
     destinations = {path: row["RW"] for path, row in mounts.items()}
     if (config["NetworkMode"] != "none" or config["Privileged"] or not config["ReadonlyRootfs"]
@@ -186,7 +209,7 @@ def watch(store, cli, sentinel, records, server):
                 binding = Binding(store.root, proof["rollout"])
                 ident = proof["container"]
                 if binding.active():
-                    if not store.read(name, "provider-start"):
+                    if store.read(name, "request") and not store.read(name, "provider-start"):
                         inspect_scope(store, name, proof, ident)
                     continue
                 inventory = subprocess.check_output(["docker", "ps", "-aq", "--filter", f"id={ident}"], text=True)
@@ -199,8 +222,11 @@ def watch(store, cli, sentinel, records, server):
                 request = store.read(run_id, "request", required=True)
                 spec = request.get("evaluation")
                 if spec:
+                    if "task_id" in spec and (store.root / "stop").exists():
+                        continue
                     ready = store.read(run_id, "harbor-ready")
-                    if not ready or not store.read(ready["assignment"], "runner-allowed"):
+                    if (not ready or not store.read(run_id, "provider-start")
+                            or not store.read(ready["assignment"], "runner-allowed")):
                         continue
                     binding = Binding(store.root, spec["rollout"])
                     if not binding.active():
