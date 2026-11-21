@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "tuning": {
+    "id": "verified-patch",
+    "class": "operator CLI and evidence archive",
+    "difficulty": "medium",
+    "provenance": "Approved P03 outcome pr03-proxy-final, later delivered in PR #4",
+    "base_sha": "31f67b2ea40d4fa4570b26dd9b175e9fe423f416"
+  },
+  "held_out": [
+    {
+      "id": "rpc-unknown-operation",
+      "class": "Unix service protocol bug fix",
+      "difficulty": "easy",
+      "provenance": "Curated from the Unix RPC dispatch contract in PR #2",
+      "base_sha": "31f67b2ea40d4fa4570b26dd9b175e9fe423f416",
+      "inputs": {
+        "instruction.md": "ae6baf7ca83ec6ed337880ab4bbf3cfcc6ce6167847139de1dde41d6c7994d28",
+        "checks.py": "1f420b4a740923083b17f6f16ecd7e034209137761bfb184fdd47e7a67eebaa0"
+      }
+    },
+    {
+      "id": "profile-preview",
+      "class": "revision-scoped configuration inspection",
+      "difficulty": "medium",
+      "provenance": "Curated from the delivery agent configuration resolver in PR #3",
+      "base_sha": "b7ef08dd1dc77f5b2a6ae01e3eecdd59a22a4be0",
+      "inputs": {
+        "instruction.md": "1c2cf1450d5957ac4d75cf2d53743441a606b08c07de37328d280ee4f2706ea6",
+        "checks.py": "f13e20a1ce1f77e34efea41bad33f1d3b92a5e5aa67a0f69adcfc94ba649e859"
+      }
+    }
+  ]
+}

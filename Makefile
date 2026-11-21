@@ -25,3 +25,8 @@ verify-product:
 
 verify-proposal:
 	./scripts/verify-proposal.sh
+
+.PHONY: verify-harbor
+
+verify-harbor:
+	./scripts/verify-harbor.sh
