@@ -6,11 +6,13 @@ from tempfile import TemporaryDirectory
 from time import time
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from factory.codex_delivery import dispatch
 from factory.evidence import Evidence, encode
+from factory.harbor_binding import Binding
 
 
 class FixtureWorkspace:
@@ -82,6 +84,27 @@ print(json.dumps({"type":"item.completed","item":{"text":sys.stdin.read()}}))
         result = self.dispatch(1, "raise RuntimeError('configuration not pinned')")
         self.assertEqual(result["reason"], "pinned_configuration_unavailable")
         self.assertNotIn("native_events", result)
+
+    def test_scoped_delivery_cannot_pass_with_only_a_postflight_marker(self):
+        binding = Binding(self.root, str(uuid4()))
+        request = {**self.request, "run_id": binding.name, "base_sha": "base",
+                   "workspace_marker": "trusted-round-trip", "evaluation": {"rollout": binding.rollout}}
+
+        def fake_run_cli(args, cwd, env, text, events, deadline, **kwargs):
+            self.assertIn(b"workspace tool for every product command", text)
+            events.write_text("")
+            self.store.record(binding.name, "submission", {"head_sha": "submitted"})
+            return {"reason": "completed"}
+
+        with patch("factory.codex_delivery.preflight", return_value=None), \
+                patch("factory.codex_delivery.cli_args", return_value=["fake-cli"]), \
+                patch("factory.codex_delivery.run_cli", side_effect=fake_run_cli), \
+                patch.object(Binding, "run", return_value={"exit_code": 0, "output": binding.name, "truncated": False}):
+            result = dispatch(self.store, request, {"attempt": 1}, "fixture", self.root, binding=binding)
+            self.assertEqual(result["reason"], "workspace_marker_missing")
+            self.assertEqual(dispatch(self.store, request, {"attempt": 1}, "fixture", self.root, binding=binding), result)
+        self.assertFalse(self.store.read(binding.name, "attempt-1-marker")["assigned_workspace"])
+        self.assertIsNone(self.store.read(binding.name, "attempt-1-workspace-proof"))
 
 
 if __name__ == "__main__":
