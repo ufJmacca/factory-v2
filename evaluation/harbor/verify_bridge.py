@@ -38,10 +38,13 @@ async def product_control(store, client, minutes):
     common = store.read("bridge", "common", required=True)
     frozen = store.read("bridge", "frozen", required=True)
     deadline = time() + minutes * 60
-    request = store.admit({**common, "run_id": run_id, "deadline_epoch": deadline,
-                           "grader_digest": common["product_grader"], "outcome": frozen["instruction"]})
+    request = store.read(run_id, "request") or store.admit({
+        **common, "run_id": run_id, "deadline_epoch": deadline,
+        "grader_digest": common["product_grader"], "outcome": frozen["instruction"],
+    })
+    deadline = request["deadline_epoch"]
     workflow = await submit(client, store, run_id)
-    await started(store, run_id, min(deadline, time() + 10))
+    await started(store, run_id, deadline if minutes == 10 else min(deadline, time() + 10))
     return request, workflow
 
 
@@ -141,7 +144,13 @@ async def main():
             return None
 
     await wait_until(server_ready, time() + 30, "Harbor server unavailable")
-    assignments = ["bridge-live"] if live else ["bridge-left", "bridge-right"]
+    resumed = bool(os.environ.get("BRIDGE_RESUME_ROOT"))
+    if resumed:
+        require(live and (root / "runs/bridge-product-control/attempt-1-intent.json").exists(),
+                "resume requires the original product execution")
+        require(not any((root / "runs").glob("eval-*/attempt-1-intent.json")),
+                "resume requires an unused Harbor execution")
+    assignments = ["bridge-live-resumed" if resumed else "bridge-live"] if live else ["bridge-left", "bridge-right"]
     allocated = await asyncio.gather(*(launch(api, client, store, name, minutes=minutes, discard_reply=index == 0)
                                        for index, name in enumerate(assignments)))
     queued = None
@@ -193,8 +202,9 @@ async def main():
             "fixture effect count differs")
     _, jobs = await api.request("/jobs")
     (root / "summary.json").write_bytes(encode({
-        "tested_sha": product["factory_sha"], "clean_checkout": not (root / "git-status.txt").read_text(),
-        "mode": "live" if live else "scripted", "trials": trials,
+        "tested_sha": (root / "tested-sha.txt").read_text().strip(),
+        "clean_checkout": not (root / "tested-status.txt").read_text(),
+        "resumed_product_execution": resumed, "mode": "live" if live else "scripted", "trials": trials,
         "product": {"workflow_id": product_result["workflow_id"], "temporal_run_id": product_result["temporal_run_id"],
                     "submitted_sha": product_result["submitted_sha"], "runtime": product["runtime"]},
         "failure_drills": failure_drills, "harbor_job_count": jobs["total"], "fixture_effect_count": ledger["effect_count"],

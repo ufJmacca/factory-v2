@@ -34,6 +34,11 @@ def proxy_from_env():
 
 def prepare(store, sha, image, worker, live):
     frozen = store.read("bridge", "frozen", required=True)
+    if os.environ.get("BRIDGE_RESUME_ROOT"):
+        prior = store.read("bridge", "common", required=True)
+        if not live or worker != prior["runtime"]["worker_image"] or proxy_from_env().pin(store) != prior["transport"]:
+            raise Conflict("resume requires the original worker image and CLI Proxy Hub")
+        return
     profile = resolve(REPO, sha, store)
     transport = proxy_from_env().pin(store) if live else {"kind": "scripted-responses"}
     if live:
@@ -155,8 +160,9 @@ def watch(store, cli, sentinel, records, server):
     children = {}
     resume_at = None
     do_pause = True
+    stop = Path(os.environ["BRIDGE_WATCH_STOP"])
     try:
-        while not (store.root / "verification-complete").exists():
+        while not stop.exists():
             if do_pause and store.read("bridge-lease-loss", "pause-owner"):
                 subprocess.run(["docker", "pause", server], check=True, stdout=subprocess.DEVNULL)
                 do_pause = False
@@ -181,7 +187,7 @@ def watch(store, cli, sentinel, records, server):
                     store.record(name, "provider-stop", {"container": ident, "removed": True})
             for path in (store.root / "runs").glob("*/dispatch-attempt-1.json"):
                 run_id = path.parent.name
-                if run_id in children or store.read(run_id, "attempt-1"):
+                if run_id in children or store.read(run_id, "attempt-1") or store.read(run_id, "attempt-1-intent"):
                     continue
                 request = store.read(run_id, "request", required=True)
                 spec = request.get("evaluation")
@@ -204,7 +210,10 @@ def watch(store, cli, sentinel, records, server):
         if resume_at is not None:
             subprocess.run(["docker", "unpause", server], check=False, stdout=subprocess.DEVNULL)
     for child in children.values():
-        child.wait(timeout=20)
+        try:
+            child.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            continue
 
 
 def main():
