@@ -10,8 +10,16 @@ from temporalio.service import RPCError
 
 from factory.evidence import Conflict, digest, encode, validate_run_id
 from factory.harbor_binding import Binding
-from factory.harbor_receipt import reconcile_grade
+from factory.harbor_receipt import InvalidHarborGrade, reconcile_grade
 from factory.outcome_worker import submit
+
+
+class SubmitReplyLost(TimeoutError):
+    pass
+
+
+class BatchStopped(Exception):
+    pass
 
 
 class Harbor:
@@ -95,45 +103,58 @@ async def wait_until(read, deadline, description):
     raise TimeoutError(description)
 
 
-async def launch(api, client, store, name, *, minutes=2, discard_reply=False):
-    frozen = store.read("bridge", "frozen", required=True)
-    common = store.read("bridge", "common", required=True)
+
+async def rollout_for(api, store, name, job):
+    _, listing = await api.request("/rollouts?" + urlencode({"job_ids": job}))
+    if listing["total"] != 1 or len(listing["items"]) != 1:
+        raise Conflict("expected exactly one rollout")
+    rollout = listing["items"][0]["id"]
+    store.record(name, "harbor-rollout", {"job": job, "rollout": rollout})
+    return rollout
+
+async def launch(api, client, store, name, *, minutes=2, discard_reply=False, frozen=None, common=None,
+                 deadline_limit=None, lose_reply=False):
+    frozen = frozen or store.read("bridge", "frozen", required=True)
+    common = common or store.read("bridge", "common", required=True)
     config = config_for(store, frozen, name, minutes)
     assignment = store.read(name, "assignment")
     if assignment is None:
+        deadline = time() + minutes * 60
         assignment = store.record(name, "assignment", {
             "instruction": frozen["instruction"], "base_sha": frozen["base_sha"],
-            "deadline_epoch": time() + minutes * 60,
+            "deadline_epoch": min(deadline, deadline_limit) if deadline_limit is not None else deadline,
         })
     deadline = assignment["deadline_epoch"]
     _, dry = await api.request("/jobs/submit", {**config, "dry_run": True})
     if dry != {"n_trials": 1}:
         raise Conflict("unexpected Harbor dry-run plan")
     store.record(name, "harbor-dry-run", dry)
+    if lose_reply:
+        store.record(name, "harbor-intent", {"key": name, "request_digest": digest(encode(config))})
+        await api.request("/jobs/submit", config, key=name, status=(200, 409))
+        raise SubmitReplyLost("simulated loss after Harbor accepted the request")
     receipt = await submit_job(api, store, name, config, discard_reply=discard_reply)
-    _, listing = await api.request("/rollouts?" + urlencode({"job_ids": receipt["job"]}))
-    if listing["total"] != 1 or len(listing["items"]) != 1:
-        raise Conflict("expected exactly one rollout")
+    rollout = await rollout_for(api, store, name, receipt["job"])
     _, job = await api.request(f"/jobs/{receipt['job']}")
     lock_bytes = await api.download(job["job"]["lock_uri"])
     lock = json.loads(lock_bytes)
     if len(lock["trials"]) != 1:
         raise Conflict("Harbor job lock differs from the dry run")
-    rollout = listing["items"][0]["id"]
     binding = Binding(store.root, rollout)
     evaluation = {key: frozen[key] for key in ("task_checksum", "task_digest", "grader_digest", "harbor_revision")}
+    evaluation.update({key: frozen[key] for key in ("grade_checks", "reported_grader_required", "task_id", "scripted_rejection") if key in frozen})
     request = store.admit({
         **common, "run_id": binding.name, "outcome": frozen["instruction"], "deadline_epoch": deadline,
         "workspace_image": frozen["workspace_image"],
         "grader_digest": frozen["grader_digest"],
         "evaluation": {**evaluation, "job": receipt["job"], "rollout": rollout,
                        "job_lock": store.blob(lock_bytes), "harbor_task_lock": lock["trials"][0]["task"]["digest"],
-                       "grade_deadline_epoch": deadline + 100},
+                       "grade_deadline_epoch": min(deadline + 100, deadline_limit) if deadline_limit is not None else deadline + 100},
     })
     async def ready():
         return store.read(binding.name, "harbor-ready")
 
-    proof = await wait_until(ready, deadline, "FactoryAgent did not open its workspace")
+    proof = await ready() or await wait_until(ready, deadline, "FactoryAgent did not open its workspace")
     if proof["assignment"] != name or proof["rollout"] != rollout:
         raise Conflict("Harbor agent opened the wrong rollout")
     handle = await submit(client, store, binding.name)
@@ -143,12 +164,14 @@ async def launch(api, client, store, name, *, minutes=2, discard_reply=False):
     return request, handle
 
 
-async def reconcile(api, store, request, handle, *, notify=True):
+async def reconcile(api, store, request, handle, *, notify=True, stop=None):
     run_id = request["run_id"]
     spec = request["evaluation"]
     binding = Binding(store.root, spec["rollout"])
     deadline = spec["grade_deadline_epoch"]
     while time() < deadline:
+        if stop is not None and stop.exists():
+            raise BatchStopped
         row = await api.rollout(binding.rollout)
         workflow = await handle.describe()
         if row["state"] in ("cancelling", "cancelled"):
@@ -168,8 +191,12 @@ async def reconcile(api, store, request, handle, *, notify=True):
             if export and (row["result"] or {}).get("verifier_result"):
                 paths = row["artifacts"]
                 bundle = await api.download(paths["artifacts/output/submission.bundle"])
-                grade = json.loads(await api.download(paths["verifier/grade.json"]))
-                reconcile_grade(store, request, export, row, grade, bundle)
+                grade_bytes = await api.download(paths["verifier/grade.json"])
+                store.record(run_id, "harbor-observed-grade", {"sha256": store.blob(grade_bytes)})
+                try:
+                    reconcile_grade(store, request, export, row, json.loads(grade_bytes), bundle)
+                except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as error:
+                    raise InvalidHarborGrade("Harbor protected grade is malformed") from error
                 if store.read(run_id, "harbor-notification") is None:
                     sent = notify and workflow.status == WorkflowExecutionStatus.RUNNING
                     if sent:
