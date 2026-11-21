@@ -52,18 +52,27 @@ def allow(store, assignment):
     store.record(assignment, "runner-allowed", {"allowed": True})
 
 
-def marker_check(store, manifest):
+def scripted_workspace_check(store, manifest):
     run_id = manifest["run_id"]
     native = store.read_blob(manifest["artifacts"]["attempt-1_events"])
+    results = {}
     for line in native.splitlines():
         event = json.loads(line)
         item = event.get("item", {})
-        if (event["type"] == "item.completed" and item.get("tool") == "workspace"
-                and "factory-marker" in str(item.get("arguments", {})) and item.get("result")):
-            result = json.loads(item["result"]["content"][0]["text"])
-            if result == {"exit_code": 0, "output": run_id, "truncated": False}:
-                return
-    raise AssertionError(f"Codex did not observe the assigned marker for {run_id}")
+        if event["type"] == "item.completed" and item.get("tool") == "workspace" and item.get("result"):
+            command = item["arguments"]["command"]
+            results[command] = json.loads(item["result"]["content"][0]["text"])
+
+    marker = {"exit_code": 0, "output": run_id, "truncated": False}
+    require(any("factory-marker" in command and result == marker for command, result in results.items()),
+            f"Codex did not observe the assigned marker for {run_id}")
+    verbose = next(result for command, result in results.items() if "sys.stdout.write" in command)
+    side_effect = results["test -f .git/factory-verbose-probe"]
+    require(verbose == {"exit_code": 7, "output": "x" * 30_000, "truncated": True}
+            and side_effect == {"exit_code": 0, "output": "", "truncated": False},
+            f"{run_id} verbose command returned {verbose['exit_code']}, retained {len(verbose['output'])} bytes, "
+            f"truncated={verbose['truncated']}, and marker check returned {side_effect['exit_code']}")
+
 
 
 async def in_workspace(binding):
@@ -178,7 +187,7 @@ async def main():
     require(store.read(product["run_id"], "attempt-1-marker", required=True)["assigned_workspace"],
             "product control marker missing")
     if not live:
-        marker_check(store, product_result)
+        scripted_workspace_check(store, product_result)
     trials = []
     for (request, handle), result in zip(allocated, results, strict=True):
         require(result["status"] == "verified", f"trial ended as {result['reason']}")
@@ -189,7 +198,7 @@ async def main():
         require(export["runtime"] == product["runtime"], "runtime differs from the product control")
         require(not store.read(run_id, "harbor-notification", required=True)["sent"], "grade signal was sent")
         if not live:
-            marker_check(store, result)
+            scripted_workspace_check(store, result)
         trials.append({
             **export, "manifest": store.blob(encode(result)),
             "protected_grade": store.read(run_id, "harbor-grade", required=True),

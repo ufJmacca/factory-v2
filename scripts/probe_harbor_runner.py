@@ -69,9 +69,16 @@ def calls_for(store, request):
     ready = store.read(marker, "harbor-ready")
     hold = " && sleep 20" if ready else ""
     test = "import importlib.util\nassert importlib.util.find_spec('factory.verified_patch')\n"
+    verbose = (
+        "import sys; from pathlib import Path; "
+        "sys.stdout.write('x' * 1_000_000); sys.stdout.flush(); "
+        "Path('.git/factory-verbose-probe').touch(); sys.exit(7)"
+    )
     tools = [
         ("workspace", {"command": f"test ! -e .git/factory-marker && printf %s {quote(marker)} > .git/factory-marker "
                                   f"&& test \"$(cat .git/factory-marker)\" = {quote(marker)}{hold} && printf %s {quote(marker)}"}),
+        ("workspace", {"command": f"python -c {quote(verbose)}"}),
+        ("workspace", {"command": "test -f .git/factory-verbose-probe"}),
         ("milestone", {"phase": "investigation", "note": "Verified workspace placement."}),
         ("workspace", {"command": f"printf %s {quote(test)} > tests/bridge_red.py && "
                                   f"git add tests/bridge_red.py && {fixture_cli.COMMIT} -m 'Add behavior test'"}),
