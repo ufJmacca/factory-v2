@@ -30,3 +30,8 @@ verify-proposal:
 
 verify-harbor:
 	./scripts/verify-harbor.sh
+
+.PHONY: verify-harbor-bridge
+
+verify-harbor-bridge:
+	./scripts/verify-harbor-bridge.sh
