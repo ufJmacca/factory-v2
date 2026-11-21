@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"id": "final_record_without_newline", "stdin": "alpha\n\nbeta", "stdout": "2\n"},
+    {"id": "empty_input", "stdin": "", "stdout": "0\n"},
+    {"id": "newline_terminated", "stdin": "alpha\n\nbeta\n", "stdout": "2\n"}
+  ]
+}

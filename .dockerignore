@@ -1,0 +1,7 @@
+**
+!grading/
+!grading/Dockerfile
+!grading/checks.json
+!src/
+!src/factory/
+!src/factory/verify.py

@@ -1,0 +1,7 @@
+{
+  "name": "Factory workspace",
+  "dockerComposeFile": "../compose.yaml",
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+  "shutdownAction": "stopCompose"
+}
