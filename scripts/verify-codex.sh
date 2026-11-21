@@ -15,7 +15,7 @@ compose() {
     docker compose -p "$project" -f compose.yaml -f compose.recovery.yaml -f compose.codex.yaml "$@"
 }
 
-if ! compose build workspace codex-workspace > "$evidence/build.log" 2>&1; then
+if ! compose build workspace codex-workspace outcome-worker > "$evidence/build.log" 2>&1; then
     cat "$evidence/build.log" >&2
     exit 1
 fi
@@ -38,3 +38,16 @@ if ! PYTHONPATH=src "${FACTORY_HOST_PYTHON:-python3.12}" scripts/probe_codex_cli
     exit 1
 fi
 cat "$evidence/cli.log"
+
+trap 'compose down --volumes --timeout 5 >> "$evidence/temporal-compose.log" 2>&1 || :' EXIT
+if ! compose up -d --no-build --wait --wait-timeout 30 outcome-worker \
+    > "$evidence/temporal-compose.log" 2>&1; then
+    cat "$evidence/temporal-compose.log" >&2
+    exit 1
+fi
+if ! compose exec -T outcome-worker python - < scripts/probe_codex_deadline.py \
+    > "$evidence/temporal.log" 2>&1; then
+    cat "$evidence/temporal.log" >&2
+    exit 1
+fi
+cat "$evidence/temporal.log"

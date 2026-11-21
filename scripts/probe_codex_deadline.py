@@ -70,6 +70,7 @@ async def main():
     await asyncio.gather(
         check_deadline(client, store, "deadline-attempt", "deadline_exceeded"),
         check_deadline(client, store, "late-submission-receipt", "completed"),
+        check_deadline(client, store, "late-interruption-receipt", "interrupted"),
         check_missing_receipt(client, store),
     )
 

@@ -65,6 +65,9 @@ def run_cli(argv: list[str], cwd: Path, env: dict, prompt: bytes, events: Path, 
             selector.register(read_out, EVENT_READ, "stdout")
             selector.register(read_err, EVENT_READ, "stderr")
             try:
+                if time() >= deadline:
+                    return {"reason": "deadline_exceeded", "exit_code": None, "event_count": 0,
+                            "usage": None, "billing": None}
                 process = subprocess.Popen(
                     argv, cwd=cwd, env=env, stdin=stdin, stdout=write_out, stderr=write_err,
                     start_new_session=True,

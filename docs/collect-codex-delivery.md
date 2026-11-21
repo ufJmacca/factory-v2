@@ -46,6 +46,9 @@ a retry reads the pinned profile and skills and restores the latest checkpoint.
 An unresolved host interruption leaves an active marker and the next dispatch
 stops with `unfenced_prior_attempt`. Use one evidence root per trusted runner.
 Quota exhaustion, lost login, and a rejected proxy key end the run explicitly.
+The execution deadline stops new work and ends the model process. Temporal
+gives the runner 30 seconds to publish its cleanup receipt and evidence before
+finalizing. A missing receipt ends the run with `receipt_timeout`.
 Billing remains unknown when the CLI supplies no attributable cost.
 
 The runner removes the product and grading containers. The terminal manifest

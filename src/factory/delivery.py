@@ -23,6 +23,7 @@ class RecordsDelivery:
 
 
 OUTCOME_QUEUE = "codex-delivery"
+RECEIPT_DRAIN_SECONDS = 30
 
 
 @workflow.defn(name="deliver-outcome")
@@ -30,6 +31,8 @@ class OutcomeDelivery:
     @workflow.run
     async def run(self, request: dict) -> dict:
         context = {"workflow_id": workflow.info().workflow_id, "temporal_run_id": workflow.info().run_id}
+        execution_deadline = request["deadline_epoch"]
+        receipt_deadline = execution_deadline + RECEIPT_DRAIN_SECONDS
 
         async def exchange(operation, payload):
             return await workflow.execute_activity(
@@ -38,12 +41,16 @@ class OutcomeDelivery:
             )
 
         async def wait_for(ticket):
+            if workflow.time() >= execution_deadline:
+                return {"reason": "deadline_exceeded"}
             await exchange("queue_codex_action", ticket)
-            while workflow.time() < request["deadline_epoch"]:
+            while True:
                 if (result := await exchange("read_codex_result", ticket)) is not None:
                     return result
-                await workflow.sleep(min(2, max(0, request["deadline_epoch"] - workflow.time())))
-            return {"reason": "deadline_exceeded"}
+                remaining = receipt_deadline - workflow.time()
+                if remaining <= 0:
+                    return {"reason": "receipt_timeout"}
+                await workflow.sleep(min(2, remaining))
 
         reason = "attempts_exhausted"
         for attempt in range(1, request["max_attempts"] + 1):
