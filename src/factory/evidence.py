@@ -92,10 +92,12 @@ class Evidence:
         publish(self.run_dir(run_id) / f"{name}.json", encode(value))
         return value
 
-    def read(self, run_id: str, name: str):
+    def read(self, run_id: str, name: str, *, required: bool = False):
         try:
             return json.loads((self.run_dir(run_id) / f"{name}.json").read_bytes())
         except FileNotFoundError:
+            if required:
+                raise
             return None
 
     def admit(self, request: dict) -> dict:

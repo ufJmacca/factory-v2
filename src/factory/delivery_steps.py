@@ -199,10 +199,10 @@ def check_submissions(manifest: dict, blobs: dict[str, bytes]):
         )
 
 
-def check_manifest(store: Evidence, manifest: dict):
+def check_manifest(store: Evidence, manifest: dict) -> dict[str, bytes]:
     require(manifest["schema_version"] == 1, "unsupported manifest schema")
     require(manifest["verdict"] == "accepted", "invalid submitted verdict")
-    request = store.read(manifest["run_id"], "request")
+    request = store.read(manifest["run_id"], "request", required=True)
     require(digest(encode(request)) == manifest["request_digest"], "retained request digest differs")
     artifacts = manifest["artifacts"]
     blobs = {name: store.read_blob(reference) for name, reference in artifacts.items()}
@@ -221,7 +221,7 @@ def check_manifest(store: Evidence, manifest: dict):
 
     if "intent" in blobs or "receipt" in blobs:
         intent = json.loads(blobs["intent"])
-        require(store.read(manifest["run_id"], "intent") == intent, "retained intent differs")
+        require(store.read(manifest["run_id"], "intent", required=True) == intent, "retained intent differs")
         request_digest = intent.pop("request_digest")
         require(intent["operation_id"] == f"records-delivery:{manifest['run_id']}", "operation ID differs")
         require(intent["submitted_sha"] == manifest["submitted_sha"], "effect head differs")
@@ -229,8 +229,9 @@ def check_manifest(store: Evidence, manifest: dict):
         require(request_digest == digest(encode(intent)), "effect request digest differs")
         if "receipt" in blobs:
             receipt = json.loads(blobs["receipt"])
-            require(store.read(manifest["run_id"], "receipt") == receipt, "retained receipt differs")
+            require(store.read(manifest["run_id"], "receipt", required=True) == receipt, "retained receipt differs")
             validate_receipt(receipt, intent["operation_id"], request_digest)
+    return blobs
 
 
 def reopen(store: Evidence, run_id: str) -> dict:

@@ -69,3 +69,14 @@ The check makes zero subscription model calls.
 
 The [live delivery guide](docs/collect-codex-delivery.md) covers the
 maintainer-approved subscription run and its evidence.
+
+## Retrieve a verified patch
+
+From the factory checkout, pass the exported PR 02 `archive` directory (the one containing
+`runs/` and `blobs/`) and the run ID:
+
+```sh
+PYTHONPATH=src python -m factory.verified_patch --evidence "$EVIDENCE_DIR/archive" "$RUN_ID" > verified.patch
+```
+
+The command leaves the archive untouched and writes the binary-capable Git diff to stdout only after checking the evidence for a completed, accepted delivery. Missing or corrupt evidence produces a diagnostic on stderr and a nonzero exit status.
