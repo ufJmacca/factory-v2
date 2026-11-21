@@ -260,7 +260,7 @@ async def drive(store, manifest, action):
     result = report(store, plan, live=live)
     if result["dispositions"].get("pending", 0):
         raise Conflict("experiment stopped with unreconciled assignments")
-    if not live:
+    if not live and not stop_file.exists():
         duplicate = store.read(scripted[0], "harbor-duplicate", required=True)
         recovered = store.read(scripted[0], "harbor-job", required=True)
         faults = {row["task"]: row["reason"] for row in result["assignments"] if row["disposition"] == "invalid_grade"}
