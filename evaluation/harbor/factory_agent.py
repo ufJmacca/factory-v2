@@ -84,7 +84,8 @@ class FactoryAgent(BaseAgent):
         if not 0 < limit <= 16 * 1024 * 1024:
             raise Conflict("invalid workspace output limit")
         command = shlex.join(["timeout", "-k", "1s", "45s", *argv])
-        wrapped = "bash -o pipefail -c " + shlex.quote(f"{command} 2>&1 | head -c {limit + 1}")
+        drain = f"{{ head -c {limit + 1}; cat >/dev/null; }}"
+        wrapped = "bash -o pipefail -c " + shlex.quote(f"{command} 2>&1 | {drain}")
         binding.require_active()
         result = await environment.exec(command=wrapped, cwd="/work/product",
                                         user="10001:10001", timeout_sec=50)
