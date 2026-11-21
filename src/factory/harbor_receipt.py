@@ -13,6 +13,11 @@ ISOLATION_CHECKS = (
 GRADE_CHECKS = {"verified", "unknown_run", "missing_artifact", "corrupt"}
 
 
+
+class InvalidHarborGrade(Conflict):
+    pass
+
+
 def runtime_pin(profile, build, worker, transport):
     return {
         "workflow": profile["profile"]["workflow"], "workflow_build": build, "worker_image": worker,
@@ -103,6 +108,7 @@ def reconcile_grade(store, request, export, rollout, grade, bundle):
             or task["id"] != spec["rollout"] or task["task_checksum"] != spec["task_checksum"]
             or rollout["lock"]["task"]["digest"] != spec["harbor_task_lock"]
             or export["grader_digest"] != request["grader_digest"]
+            or (spec.get("reported_grader_required") and grade.get("grader_digest") != request["grader_digest"])
             or task.get("exception_info") or task["verifier_environment_mode"] != "separate" or not task["verifier_result"]
             or rollout.get("storage_error") or export["submitted_sha"] != submission["head_sha"]
             or grade["submitted_sha"] != export["submitted_sha"]
@@ -111,12 +117,15 @@ def reconcile_grade(store, request, export, rollout, grade, bundle):
             or not re.fullmatch(r"[0-9a-f]{12}", isolation.get("container", ""))
             or isolation["container"] == stopped["container"]
             or any(isolation.get(check) is not True for check in ISOLATION_CHECKS)):
-        raise Conflict("Harbor grade provenance differs from the locked submission")
+        raise InvalidHarborGrade("Harbor grade provenance differs from the locked submission")
     reward = task["verifier_result"]["rewards"]["reward"]
     checks = grade["checks"]
-    accepted = checks.keys() == GRADE_CHECKS and all(result is True for result in checks.values())
+    if (not isinstance(checks, dict) or checks.keys() != set(spec.get("grade_checks", GRADE_CHECKS))
+            or any(type(result) is not bool for result in checks.values()) or type(reward) not in (float, int)):
+        raise InvalidHarborGrade("Harbor protected grade has invalid check results")
+    accepted = all(checks.values())
     if reward != int(accepted) or grade["status"] != ("accepted" if accepted else "rejected"):
-        raise Conflict("Harbor result disagrees with the protected grade")
+        raise InvalidHarborGrade("Harbor result disagrees with the protected grade")
     verdict = {
         **spec, "checked_sha": grade["submitted_sha"], "grader_digest": request["grader_digest"],
         "protected_grade": store.blob(encode(grade)), "decision": grade["status"],

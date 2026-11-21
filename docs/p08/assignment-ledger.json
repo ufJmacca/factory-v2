@@ -1,0 +1,508 @@
+{
+  "accepted": 4,
+  "assignments": [
+    {
+      "arm": "candidate",
+      "attempt": {
+        "accepted": false,
+        "agent_container": "44d3f445928c",
+        "checked_sha": null,
+        "cost_usd": null,
+        "evidence": {
+          "native.jsonl": {
+            "sha256": "c69893a9b93f11ee5b9ead215ef969131f8bede4d047e76ec42a713af5a9299c",
+            "size": 60904
+          },
+          "submission.bundle": {
+            "sha256": "3bc67980ac0828d730f08aba2b6b10badb9f732dcddd6c87024c3e2400e964bf",
+            "size": 2857024
+          },
+          "submission.patch": {
+            "sha256": "0ddf879846b1ad7b283018cfd6c85afb7ead90accd2c7e7d99127eabcda12405",
+            "size": 7511
+          },
+          "trajectory.json": {
+            "sha256": "4b6531815f870711f64b6949bca7a68b4685d73c88e7331bc31860acbec4318d",
+            "size": 95329
+          },
+          "usage.json": {
+            "sha256": "d6cc91c06a1fe40f015f265220be5fd9c7403f88effaf514be862dca08fb6ef9",
+            "size": 146
+          }
+        },
+        "evidence_complete": false,
+        "execution_reserved": true,
+        "export": "f7eb55f26de0e519f3882d5acacbc1af74bfa69aa5e965516dcc13da2192a488",
+        "fixture_receipt": null,
+        "grade": null,
+        "grade_receipt": null,
+        "grader_digest": null,
+        "job": "3413e74c-8c62-40cc-9942-d1701abb87c1",
+        "native_events": "c69893a9b93f11ee5b9ead215ef969131f8bede4d047e76ec42a713af5a9299c",
+        "number": 1,
+        "observed_grade": "26048d46424b48907d43a164caec57175bdf1bd7a7e68db6391c75575e349008",
+        "rollout": "6c046c5a-b124-4fff-9f35-5978759e6b1c",
+        "run_id": "eval-6c046c5a-b124-4fff-9f35-5978759e6b1c",
+        "runner_disposition": "completed",
+        "scored": false,
+        "submission_intent": "bb52cac84d8d52b7df3950bf3a286339d46e364896be78626c6815d305d289a8",
+        "submitted_sha": "b33299533644305276a6512c00499ea04beac29e",
+        "temporal_run_id": "01a1fd98-d2f9-76c1-b063-1c925a8ca2e8",
+        "terminal_manifest": "2672ea6e9543b39e6bce7be01b2a77849b3a25b2347f23f3ae45e5f801194211",
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 14,
+          "output_tokens": 14,
+          "reasoning_output_tokens": 0
+        },
+        "workflow_disposition": "harbor_invalid_grade",
+        "workspace_rejections": 0
+      },
+      "disposition": "invalid_grade",
+      "id": "p08-01",
+      "pair": 3,
+      "reason": "Harbor protected grade has invalid check results",
+      "task": "verified-patch"
+    },
+    {
+      "arm": "baseline",
+      "attempt": {
+        "accepted": true,
+        "agent_container": "3a28cffe7887",
+        "checked_sha": "337328099b023bbc2265851bfc7521ceac997205",
+        "cost_usd": null,
+        "evidence": {
+          "native.jsonl": {
+            "sha256": "fcd85f9a1404f1922b0cec0bf505201f8a2c8c0ec5738dc42a130a76ab99f9f0",
+            "size": 61415
+          },
+          "submission.bundle": {
+            "sha256": "bc71c89404973387900cfce39e0307a4c79adb370101c97204d40e2298a11627",
+            "size": 2857023
+          },
+          "submission.patch": {
+            "sha256": "0ddf879846b1ad7b283018cfd6c85afb7ead90accd2c7e7d99127eabcda12405",
+            "size": 7511
+          },
+          "trajectory.json": {
+            "sha256": "cd3e533bad535a27bbc5f8e1b804ebc7e89ea694a8f20a094ae6a08d812322b0",
+            "size": 95999
+          },
+          "usage.json": {
+            "sha256": "809e3f1447bb5e4426730dd124ef81a538cf38aed6e8c020de729e593c024efe",
+            "size": 146
+          }
+        },
+        "evidence_complete": true,
+        "execution_reserved": true,
+        "export": "4760cfda38663d2945090a659bd49929571c2a684bfbc3bbf1453282f6ffb824",
+        "fixture_receipt": "86eba1148c3d43e59041a149d983093149dbd73452d99ad58f8aa3dfcb56fa86",
+        "grade": "accepted",
+        "grade_receipt": "f56f19ce98b4847ece1fb9b951161eca1f3160b3170e187be1c7a1a5e429d7f9",
+        "grader_digest": "9d8309463757b03a272656f3d144ec832b05ce3896887b7e1415de9e3af02a8a",
+        "job": "a26502ba-f466-4e9b-8711-867dcb864945",
+        "native_events": "fcd85f9a1404f1922b0cec0bf505201f8a2c8c0ec5738dc42a130a76ab99f9f0",
+        "number": 1,
+        "observed_grade": "d8c618982029ea5f6c43dbea45b8a26b9d0044012fdf09ed9f86919692e32cae",
+        "rollout": "913e22a0-7a3c-470d-9b78-3636eb4989f4",
+        "run_id": "eval-913e22a0-7a3c-470d-9b78-3636eb4989f4",
+        "runner_disposition": "completed",
+        "scored": true,
+        "submission_intent": "434f93ea2513cdc5209b3b3c004377c6a2d55ca5af7dfff686913b3c461da1b5",
+        "submitted_sha": "337328099b023bbc2265851bfc7521ceac997205",
+        "temporal_run_id": "01a1fd99-24dd-789c-b04e-8e03520732d5",
+        "terminal_manifest": "0cf0f94dd39eec1d2506a18815d83a96dbb0b534a7305eb7c67940dbf40e2677",
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 15,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0
+        },
+        "workflow_disposition": "accepted",
+        "workspace_rejections": 1
+      },
+      "disposition": "accepted",
+      "id": "p08-02",
+      "pair": 3,
+      "reason": "accepted",
+      "task": "verified-patch"
+    },
+    {
+      "arm": "baseline",
+      "attempt": {
+        "accepted": true,
+        "agent_container": "b7e58f248910",
+        "checked_sha": "4c8f4d96af1cc940f9e8669f6b6af0487c65581b",
+        "cost_usd": null,
+        "evidence": {
+          "native.jsonl": {
+            "sha256": "d995181d7b2f8dbe73c3909cb9d849e458ab79658904f568fab328003bafa79e",
+            "size": 43791
+          },
+          "submission.bundle": {
+            "sha256": "fc9f5b661853dcdfd2c6d907e2c8f94dd12c9805f601b96bbac90dd9971ee1ca",
+            "size": 2854643
+          },
+          "submission.patch": {
+            "sha256": "ca08df4741a2fee1da0a3ad4d0f0d1508e84d9ce61ce4b200a8ab0208d909890",
+            "size": 1552
+          },
+          "trajectory.json": {
+            "sha256": "c2befe347828a6af538d756f7d283f346c05ee2aafbb7a19cc291803304bd6bc",
+            "size": 77743
+          },
+          "usage.json": {
+            "sha256": "c16445c36f9ca0b6b140ff83cd604eebadfb429185f9c92a8befd397ffe02c92",
+            "size": 146
+          }
+        },
+        "evidence_complete": true,
+        "execution_reserved": true,
+        "export": "fb84c16de6d62b9682ac9cdedd4e7ce6a6e829f021c5c2ea537904ece00481ff",
+        "fixture_receipt": "40beaab28a6745eb7b9d22132acef894df52b5e55023bc485df4a12dff0fe8f7",
+        "grade": "accepted",
+        "grade_receipt": "ff83bec3f9736e1faf58d9fd0feae70a1cb745bd62937ed67a74d90e0ee7158f",
+        "grader_digest": "cc2c1d5278bb595881640ce8672028dde15369dedb769348593996a84601ef11",
+        "job": "d4140908-373f-4207-b3ac-4d3968401a90",
+        "native_events": "d995181d7b2f8dbe73c3909cb9d849e458ab79658904f568fab328003bafa79e",
+        "number": 1,
+        "observed_grade": "623a8f37ac71fcd57f1d10149009c84151e81ea3524d4d59e271b5adb702c3cb",
+        "rollout": "3fdff794-9cb2-494f-b6c2-09d069749c34",
+        "run_id": "eval-3fdff794-9cb2-494f-b6c2-09d069749c34",
+        "runner_disposition": "completed",
+        "scored": true,
+        "submission_intent": "f5cfa8d642be4395e3be90fb308f1ab9f8c8cd32b92dfc9594a625ada60d22e9",
+        "submitted_sha": "4c8f4d96af1cc940f9e8669f6b6af0487c65581b",
+        "temporal_run_id": "01a1fd99-7db6-7dd1-8687-1910185935ea",
+        "terminal_manifest": "21babcec6f6a33d4f0b593cfbfa8a617e6e353ceb607050545b2851ce711a73d",
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 12,
+          "output_tokens": 12,
+          "reasoning_output_tokens": 0
+        },
+        "workflow_disposition": "accepted",
+        "workspace_rejections": 0
+      },
+      "disposition": "accepted",
+      "id": "p08-03",
+      "pair": 2,
+      "reason": "accepted",
+      "task": "rpc-unknown-operation"
+    },
+    {
+      "arm": "candidate",
+      "attempt": {
+        "accepted": true,
+        "agent_container": "81a61897aa6e",
+        "checked_sha": "39fc919f5ab9e662e35171b545ef55f7a8f26c26",
+        "cost_usd": null,
+        "evidence": {
+          "native.jsonl": {
+            "sha256": "b873acaa2fe13d38fdf1df6777d0a71fcae6b885165280dec6f319a43ec8d0a2",
+            "size": 43791
+          },
+          "submission.bundle": {
+            "sha256": "ec9e4941555827db16437712b9fb5914af99b58d1dc920bfb8481c5837e92149",
+            "size": 2854642
+          },
+          "submission.patch": {
+            "sha256": "ca08df4741a2fee1da0a3ad4d0f0d1508e84d9ce61ce4b200a8ab0208d909890",
+            "size": 1552
+          },
+          "trajectory.json": {
+            "sha256": "bc0120199c26ff099931844fe5db12864ac874ebc0b1d34fe5c445c29a56a321",
+            "size": 77743
+          },
+          "usage.json": {
+            "sha256": "c16445c36f9ca0b6b140ff83cd604eebadfb429185f9c92a8befd397ffe02c92",
+            "size": 146
+          }
+        },
+        "evidence_complete": true,
+        "execution_reserved": true,
+        "export": "b77ae0511e092e4a326aabe397a199d6de00e3e73aef99f4e31933119a12c691",
+        "fixture_receipt": "2896c588c28d0357d0eed2859ea0421afcfe621911a33cc7357bf351fb77b7bc",
+        "grade": "accepted",
+        "grade_receipt": "3f07dbb5e73a0f1c206635cd8c13c0b2c055ad1d9216079ef86be1cc15d94d22",
+        "grader_digest": "cc2c1d5278bb595881640ce8672028dde15369dedb769348593996a84601ef11",
+        "job": "356db336-6b83-4ddd-a397-c01fc2103c9f",
+        "native_events": "b873acaa2fe13d38fdf1df6777d0a71fcae6b885165280dec6f319a43ec8d0a2",
+        "number": 1,
+        "observed_grade": "e3b54e5f806c9ce6a49153788e79c46f23448f15e3b10734fda8ffa672cd5817",
+        "rollout": "aeb9f042-c604-40f8-aaef-6573d86a4234",
+        "run_id": "eval-aeb9f042-c604-40f8-aaef-6573d86a4234",
+        "runner_disposition": "completed",
+        "scored": true,
+        "submission_intent": "e345fd7621c6d2b1aaab90acddb97c2a03a9343440c2769a932b7a3ff00d13dc",
+        "submitted_sha": "39fc919f5ab9e662e35171b545ef55f7a8f26c26",
+        "temporal_run_id": "01a1fd99-cdbc-7ccf-bbc3-5ca9c2b441b5",
+        "terminal_manifest": "06ec8bd907f2081431f74e95997de198ec09b5dbbec37ccf174607a188753d83",
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 12,
+          "output_tokens": 12,
+          "reasoning_output_tokens": 0
+        },
+        "workflow_disposition": "accepted",
+        "workspace_rejections": 0
+      },
+      "disposition": "accepted",
+      "id": "p08-04",
+      "pair": 2,
+      "reason": "accepted",
+      "task": "rpc-unknown-operation"
+    },
+    {
+      "arm": "candidate",
+      "attempt": {
+        "accepted": false,
+        "agent_container": "0b86d6d62f63",
+        "checked_sha": null,
+        "cost_usd": null,
+        "evidence": {
+          "native.jsonl": {
+            "sha256": "de9d4f364320c564169d84540fe9f331dd09df5be3b0e053a152362bc39877df",
+            "size": 43561
+          },
+          "submission.bundle": {
+            "sha256": "ab0d3cfcc0b9fce2f283534ebf6aa3e71be46634e2311f27ea5691d2ad42abb9",
+            "size": 2894582
+          },
+          "submission.patch": {
+            "sha256": "80f97270ddf2c9bc80cf95cc6aefeb94dda730aa91ad73f38ea01ba251eee80f",
+            "size": 1473
+          },
+          "trajectory.json": {
+            "sha256": "3585ab4672b7573c84b38b690983bf763b9941fc27c4ce502ce8479a2fd1e5b6",
+            "size": 77499
+          },
+          "usage.json": {
+            "sha256": "c16445c36f9ca0b6b140ff83cd604eebadfb429185f9c92a8befd397ffe02c92",
+            "size": 146
+          }
+        },
+        "evidence_complete": false,
+        "execution_reserved": true,
+        "export": "93ec38d39f7005068200e043fb9a62a5f90124d9e8478a526333b9819cba4900",
+        "fixture_receipt": null,
+        "grade": null,
+        "grade_receipt": null,
+        "grader_digest": null,
+        "job": "c8586ec0-fd9f-42a7-b081-e555e97be81c",
+        "native_events": "de9d4f364320c564169d84540fe9f331dd09df5be3b0e053a152362bc39877df",
+        "number": 1,
+        "observed_grade": "f34ad8121291dba77864916a8c5f82ed950ac9858b3a8d26e6fc792d6062b6cf",
+        "rollout": "9c6f32f4-deaa-47ca-89ac-f1fc70b0d3f1",
+        "run_id": "eval-9c6f32f4-deaa-47ca-89ac-f1fc70b0d3f1",
+        "runner_disposition": "completed",
+        "scored": false,
+        "submission_intent": "cb10e3474b610bbc0789ace018f446389a0cd81a01146181bf88d45a6015c131",
+        "submitted_sha": "211a4f72f4576d035a73d600c888aca29b3b2690",
+        "temporal_run_id": "01a1fd9a-224c-7342-93cd-af46a6f64c84",
+        "terminal_manifest": "6083bd09237173224e1a91c65934993c5f311c8a68fc3e966bfc97c58db4f125",
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 12,
+          "output_tokens": 12,
+          "reasoning_output_tokens": 0
+        },
+        "workflow_disposition": "harbor_invalid_grade",
+        "workspace_rejections": 0
+      },
+      "disposition": "invalid_grade",
+      "id": "p08-05",
+      "pair": 2,
+      "reason": "Harbor grade provenance differs from the locked submission",
+      "task": "profile-preview"
+    },
+    {
+      "arm": "baseline",
+      "attempt": {
+        "accepted": true,
+        "agent_container": "f958422890d2",
+        "checked_sha": "1f61ed83e500eaf9afe169ce557cf6b8c5594296",
+        "cost_usd": null,
+        "evidence": {
+          "native.jsonl": {
+            "sha256": "11faa652b915a5545adadc83c6249f48d7cb8868274c5fa7584ff4c9c5b96a5e",
+            "size": 43561
+          },
+          "submission.bundle": {
+            "sha256": "840b7f1c38f261a5d4f0529b0e011d0de6a4f70540cd64365ae095853e54ba81",
+            "size": 2894584
+          },
+          "submission.patch": {
+            "sha256": "80f97270ddf2c9bc80cf95cc6aefeb94dda730aa91ad73f38ea01ba251eee80f",
+            "size": 1473
+          },
+          "trajectory.json": {
+            "sha256": "8896b8486c19f45f5c3ab6a27b319ceeba2f1926a15e72ea5c84a984c770ffa0",
+            "size": 77499
+          },
+          "usage.json": {
+            "sha256": "c16445c36f9ca0b6b140ff83cd604eebadfb429185f9c92a8befd397ffe02c92",
+            "size": 146
+          }
+        },
+        "evidence_complete": true,
+        "execution_reserved": true,
+        "export": "7a1bb1a05d3f6ca3864fca371ed46c442d106d63c88fc5a67e55a787754e38d4",
+        "fixture_receipt": "af825412c7e00a029e7b24bd2f11dfd38d00106b5269e45aa55b0004f5d9e63f",
+        "grade": "accepted",
+        "grade_receipt": "3ca1507c6e56c93d9a49d8d39d12e929d05491e5948f41798e375d5dbdcc7a24",
+        "grader_digest": "98d7a99c735dda303fba1f56cc8998c6dde1dd2738c791d68a9269c38a910b84",
+        "job": "81189d20-4191-4bee-aaf4-4b79a1834853",
+        "native_events": "11faa652b915a5545adadc83c6249f48d7cb8868274c5fa7584ff4c9c5b96a5e",
+        "number": 1,
+        "observed_grade": "17616907e2e638fea403b3ddb71c616f54305106ec61e28b1d4fcb217dba40a1",
+        "rollout": "51dd24b0-5faf-428c-9bf0-48f3367e6eab",
+        "run_id": "eval-51dd24b0-5faf-428c-9bf0-48f3367e6eab",
+        "runner_disposition": "completed",
+        "scored": true,
+        "submission_intent": "d53e061979d8b7e86af1cb13ed2f9c03d1dfe66b64cb2e13adc63dabbf5d73c3",
+        "submitted_sha": "1f61ed83e500eaf9afe169ce557cf6b8c5594296",
+        "temporal_run_id": "01a1fd9a-72bc-727e-8711-72b094dadf68",
+        "terminal_manifest": "8583d02c84010e156aaf7cbbb800e8d3b4173ed974e9c94171d73549182caf6b",
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 12,
+          "output_tokens": 12,
+          "reasoning_output_tokens": 0
+        },
+        "workflow_disposition": "accepted",
+        "workspace_rejections": 0
+      },
+      "disposition": "accepted",
+      "id": "p08-06",
+      "pair": 2,
+      "reason": "accepted",
+      "task": "profile-preview"
+    },
+    {
+      "arm": "baseline",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-07",
+      "pair": 3,
+      "reason": "scripted_batch_cap",
+      "task": "profile-preview"
+    },
+    {
+      "arm": "candidate",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-08",
+      "pair": 3,
+      "reason": "scripted_batch_cap",
+      "task": "profile-preview"
+    },
+    {
+      "arm": "candidate",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-09",
+      "pair": 2,
+      "reason": "scripted_batch_cap",
+      "task": "verified-patch"
+    },
+    {
+      "arm": "baseline",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-10",
+      "pair": 2,
+      "reason": "scripted_batch_cap",
+      "task": "verified-patch"
+    },
+    {
+      "arm": "baseline",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-11",
+      "pair": 1,
+      "reason": "scripted_batch_cap",
+      "task": "profile-preview"
+    },
+    {
+      "arm": "candidate",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-12",
+      "pair": 1,
+      "reason": "scripted_batch_cap",
+      "task": "profile-preview"
+    },
+    {
+      "arm": "candidate",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-13",
+      "pair": 1,
+      "reason": "scripted_batch_cap",
+      "task": "verified-patch"
+    },
+    {
+      "arm": "baseline",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-14",
+      "pair": 1,
+      "reason": "scripted_batch_cap",
+      "task": "verified-patch"
+    },
+    {
+      "arm": "candidate",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-15",
+      "pair": 1,
+      "reason": "scripted_batch_cap",
+      "task": "rpc-unknown-operation"
+    },
+    {
+      "arm": "baseline",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-16",
+      "pair": 1,
+      "reason": "scripted_batch_cap",
+      "task": "rpc-unknown-operation"
+    },
+    {
+      "arm": "candidate",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-17",
+      "pair": 3,
+      "reason": "scripted_batch_cap",
+      "task": "rpc-unknown-operation"
+    },
+    {
+      "arm": "baseline",
+      "attempt": null,
+      "disposition": "stopped",
+      "id": "p08-18",
+      "pair": 3,
+      "reason": "scripted_batch_cap",
+      "task": "rpc-unknown-operation"
+    }
+  ],
+  "attempts": 6,
+  "dispositions": {
+    "accepted": 4,
+    "invalid_grade": 2,
+    "stopped": 12
+  },
+  "evidence_complete": 4,
+  "experiment_digest": "be09a9abc9f6fb4f66edeb0724ab6b236778d62e64b4ebed3bf150db12e57e10",
+  "planned": 18,
+  "scored": 4,
+  "tested_sha": "329a5d845a65d7f8c2eafee6164a870b17b15c1e"
+}
