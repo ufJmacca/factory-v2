@@ -63,3 +63,25 @@ class OutcomeDelivery:
             if reason != "interrupted":
                 break
         return await exchange("finish_codex_delivery", {**context, "reason": reason})
+
+
+@workflow.defn(name="deliver-product")
+class ProductDelivery:
+    @workflow.run
+    async def run(self, request: dict) -> dict:
+        context = {"workflow_id": workflow.info().workflow_id, "temporal_run_id": workflow.info().run_id}
+
+        async def exchange(operation, *args):
+            return await workflow.execute_activity(
+                operation, args=(request, *args), start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+        await exchange("dispatch_product", context)
+        while True:
+            if result := await exchange("read_product"):
+                return result
+            remaining = request["deadline"] - workflow.time()
+            if remaining <= 0:
+                return await exchange("expire_product")
+            await workflow.sleep(min(2, remaining))

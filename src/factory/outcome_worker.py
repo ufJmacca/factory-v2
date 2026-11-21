@@ -12,9 +12,10 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
 from factory.codex_evidence import reopen
-from factory.delivery import OUTCOME_QUEUE, OutcomeDelivery
+from factory.delivery import OUTCOME_QUEUE, OutcomeDelivery, ProductDelivery
 from factory.delivery_steps import require
-from factory.evidence import Conflict, Evidence, digest, encode, timestamp
+from factory.evidence import Evidence, digest, encode, timestamp
+from factory.product import finish as finish_product, reopen_product, validate_request, verify_submission
 
 
 def action_key(ticket):
@@ -81,27 +82,71 @@ class OutcomeActivities:
         return reopen(self.store, run_id)
 
 
+class ProductActivities(OutcomeActivities):
+    @activity.defn(name="dispatch_product")
+    def dispatch(self, request, context):
+        run_id = self.run_id(request)
+        validate_request(request)
+        verify_submission(self.store, request)
+        self.store.record(run_id, "dispatch-product", context)
+
+    @activity.defn(name="read_product")
+    def read_product(self, request):
+        run_id = self.run_id(request)
+        if self.store.read(run_id, "product-manifest"):
+            return reopen_product(self.store, run_id)
+
+    @activity.defn(name="expire_product")
+    def expire(self, request):
+        run_id = self.run_id(request)
+        with self.store.lock(run_id):
+            if result := self.read_product(request):
+                return result
+            return finish_product(self.store, request, activity.info().current_attempt_scheduled_time.timestamp(),
+                                  "deadline", detail="no terminal runner receipt before the deadline")
+
+
+async def submit(client, store, run_id, *, product=False):
+    request = store.read(run_id, "request")
+    require(request is not None, "admitted request missing")
+    if product:
+        validate_request(request)
+        verify_submission(store, request)
+    definition = ProductDelivery.run if product else OutcomeDelivery.run
+    workflow_id = f"deliver-{'product' if product else 'outcome'}/{run_id}"
+    try:
+        return await client.start_workflow(
+            definition, request, id=workflow_id, task_queue=OUTCOME_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+        )
+    except WorkflowAlreadyStartedError:
+        handle = client.get_workflow_handle(workflow_id)
+        started = await anext(handle.fetch_history_events(page_size=1))
+        payloads = started.workflow_execution_started_event_attributes.input.payloads
+        require(await client.data_converter.decode(payloads) == [request], "existing workflow request differs")
+        return handle
+
+
 async def main(mode, run_id=None):
     client = await Client.connect(os.environ["TEMPORAL_ADDRESS"])
     store = Evidence(Path(os.environ.get("OUTCOME_EVIDENCE", "/evidence")))
-    if mode == "submit":
-        request = store.read(run_id, "request")
-        try:
-            await client.start_workflow(
-                OutcomeDelivery.run, request, id=f"deliver-outcome/{run_id}", task_queue=OUTCOME_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-            )
-        except WorkflowAlreadyStartedError:
-            handle = client.get_workflow_handle(f"deliver-outcome/{run_id}")
-            started = await anext(handle.fetch_history_events(page_size=1))
-            payloads = started.workflow_execution_started_event_attributes.input.payloads
-            require(await client.data_converter.decode(payloads) == [request], "existing workflow request differs")
+    if mode == "wait-product":
+        result = await client.get_workflow_handle(f"deliver-product/{run_id}").result()
+        require(result == reopen_product(store, run_id), "workflow result differs from the retained product evidence")
+        store.record(run_id, "temporal-completion", {
+            "execution": result["execution"], "manifest_digest": digest(encode(result)),
+        })
+        return
+    if mode in {"submit", "submit-product"}:
+        await submit(client, store, run_id, product=mode == "submit-product")
         return
     activities = OutcomeActivities(store)
+    product = ProductActivities(store)
     with ThreadPoolExecutor(max_workers=1) as executor:
         await Worker(
-            client, workflows=[OutcomeDelivery], task_queue=OUTCOME_QUEUE,
-            activities=[activities.queue, activities.read, activities.finish],
+            client, workflows=[OutcomeDelivery, ProductDelivery], task_queue=OUTCOME_QUEUE,
+            activities=[activities.queue, activities.read, activities.finish, product.dispatch,
+                        product.read_product, product.expire],
             activity_executor=executor, max_concurrent_activities=1,
         ).run()
 
