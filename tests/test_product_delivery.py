@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from factory.evidence import Conflict, Evidence, digest, encode
+from factory.product import branch
 
 
 REVISION = "1" * 40
@@ -18,6 +19,7 @@ class ProductFixture:
         self.store = store
         self.rev = None
         self.pr = None
+        self.state = "open"
         self.writes = []
         self.lose_pr = lose_pr
         self.checks = []
@@ -25,7 +27,7 @@ class ProductFixture:
 
     def find_push(self, request):
         if self.rev:
-            return {"ref": "refs/heads/codex/product/" + request["run_id"], "revision": self.rev}
+            return {"ref": "refs/heads/" + branch(request), "revision": self.rev}
 
     def push(self, request):
         self.assert_intent(request, "push")
@@ -33,7 +35,7 @@ class ProductFixture:
         self.rev = request["revision"]
 
     def find_pr(self, request):
-        return self.pr
+        return {**self.pr, "revision": self.rev, "state": self.state} if self.pr else None
 
     def create_pr(self, request):
         self.assert_intent(request, "pull_request")
@@ -47,7 +49,7 @@ class ProductFixture:
             raise TimeoutError("fixture dropped the successful response")
 
     def inspect(self, request, pr):
-        return {"revision": self.rev, "state": "open", "checks": self.checks,
+        return {"revision": self.rev, "state": self.state, "checks": self.checks,
                 "review": self.review, "corrections": []}
 
     def assert_intent(self, request, action):
@@ -123,6 +125,27 @@ class ProductDeliveryTest(unittest.TestCase):
         with self.assertRaises(Conflict):
             reopen_product(self.store, "run-a")
 
+    def test_reopen_rejects_an_edited_observation_summary(self):
+        from factory.product import record_observation, reopen_product
+        runner = self.runner()
+        self.authorize()
+        self.advance(runner)
+        record_observation(self.store, "run-a", {
+            "actor": "maintainer", "pull_request": 4, "revision": REVISION,
+            "observed_at": 14, "feedback": "Verified the expected output", "active_human_minutes": 3,
+        })
+        self.remote.verify()
+        self.advance(runner, 16)
+        result = reopen_product(self.store, "run-a")
+        self.assertEqual(3, result["active_human_minutes"])
+        self.assertEqual("Verified the expected output", result["feedback"][0]["feedback"])
+        report_file = self.store.run_dir("run-a") / "product-manifest.json"
+        document = json.loads(report_file.read_bytes())
+        document["active_human_minutes"] = 9
+        report_file.write_bytes(encode(document))
+        with self.assertRaises(Conflict):
+            reopen_product(self.store, "run-a")
+
     def test_wrong_scope_and_expired_approvals_leave_run_waiting_until_deadline(self):
         runner = self.runner()
         for changes in ({"actor": "someone-else"}, {"repo": "example/other"},
@@ -173,6 +196,52 @@ class ProductDeliveryTest(unittest.TestCase):
             self.assertEqual(environment, result["deployment"]["environment"])
             self.assertEqual(REVISION, result["deployment"]["revision"])
         self.assertEqual(2, len(list((self.deploy.store.root / "runs").glob("*/deployment.json"))))
+
+    def test_integrated_revision_needs_fresh_approval_and_reuses_original_pr(self):
+        runner = self.runner()
+        self.authorize()
+        self.advance(runner)
+        self.remote.verify()
+        prior = self.advance(runner, 16)
+        request = request_for(self.store, run_id="run-b")
+        request.update(
+            revision=OTHER,
+            predecessor={"run_id": "run-a", "revision": REVISION, "base_sha": "3" * 40},
+            source={"prior_product_manifest": self.store.blob(encode(prior)),
+                    "integration_verdict": self.store.blob(encode({"checked_sha": OTHER, "decision": "accepted"}))},
+        )
+        runner = self.runner(request, self.remote)
+        grant(self.store, request, "push", revision=REVISION)
+        self.assertEqual("awaiting_push_approval", self.advance(runner, 17)["status"])
+        grant(self.store, request, "push")
+        self.remote.checks[0]["revision"] = OTHER
+        self.remote.review["revision"] = OTHER
+        self.assertEqual("observing", self.advance(runner, 18)["status"])
+        result = self.advance(runner, 23)
+        self.assertEqual(OTHER, result["accepted_revision"])
+        self.assertEqual(4, result["pull_request"]["number"])
+        self.assertEqual([18, 23], result["observation_window"])
+        self.assertEqual(["push", "pull_request", "push"], self.remote.writes)
+
+    def test_integration_does_not_update_the_branch_of_a_closed_pr(self):
+        runner = self.runner()
+        self.authorize()
+        self.advance(runner)
+        self.remote.verify()
+        prior = self.advance(runner, 16)
+        request = request_for(self.store, run_id="run-b")
+        request.update(
+            revision=OTHER,
+            predecessor={"run_id": "run-a", "revision": REVISION, "base_sha": "3" * 40},
+            source={"prior_product_manifest": self.store.blob(encode(prior)),
+                    "integration_verdict": self.store.blob(encode({"checked_sha": OTHER, "decision": "accepted"}))},
+        )
+        runner = self.runner(request, self.remote)
+        grant(self.store, request, "push")
+        self.remote.state = "closed"
+        self.assertEqual("unshipped", self.advance(runner, 17)["status"])
+        self.assertEqual(REVISION, self.remote.rev)
+        self.assertEqual(["push", "pull_request"], self.remote.writes)
 
     def test_conflicting_existing_branch_stops_before_pr_creation(self):
         runner = self.runner()
