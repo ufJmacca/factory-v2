@@ -57,3 +57,14 @@ The command prints the evidence directory under `.evidence/`. Set `EVIDENCE_ROOT
 | `test.log`, `run.txt`, `reopened.txt` | Test output, elapsed time, container count, workflow IDs, run IDs, and effect counts |
 
 Compose stops the containers after the drill and retains the named volumes. The volume names for Temporal history, delivery evidence, and the fixture ledger appear in `run.txt`.
+
+## Retrieve a verified patch
+
+From the factory checkout, pass the exported PR 02 `archive` directory (the one containing
+`runs/` and `blobs/`) and the run ID:
+
+```sh
+PYTHONPATH=src python -m factory.verified_patch --evidence "$EVIDENCE_DIR/archive" "$RUN_ID" > verified.patch
+```
+
+The command leaves the archive untouched and writes the binary-capable Git diff to stdout only after checking the evidence for a completed, accepted delivery. Missing or corrupt evidence produces a diagnostic on stderr and a nonzero exit status.
