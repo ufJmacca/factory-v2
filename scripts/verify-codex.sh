@@ -31,3 +31,10 @@ if ! PYTHONPATH=src "${FACTORY_HOST_PYTHON:-python3.12}" scripts/probe_codex_wor
     exit 1
 fi
 cat "$evidence/workspace.log"
+if ! PYTHONPATH=src "${FACTORY_HOST_PYTHON:-python3.12}" scripts/probe_codex_cli.py \
+    "$project-codex-workspace" "$project" "$evidence" "${FACTORY_CODEX_CLI:-codex}" \
+    > "$evidence/cli.log" 2>&1; then
+    cat "$evidence/cli.log" >&2
+    exit 1
+fi
+cat "$evidence/cli.log"
