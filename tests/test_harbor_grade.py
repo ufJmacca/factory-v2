@@ -54,6 +54,19 @@ class HarborGradeTests(unittest.TestCase):
             self.reconcile(b"different")
         self.assertIsNone(self.store.read("eval-test", "verify"))
 
+    def test_rejects_unknown_checks_and_changed_reported_grader(self):
+        self.grade["checks"] = {"unexpected": False}
+        self.grade["status"] = "rejected"
+        self.rollout["result"]["verifier_result"]["rewards"]["reward"] = 0
+        with self.assertRaises(Conflict):
+            self.reconcile()
+        self.grade.update(checks={"contract": True}, status="accepted", grader_digest="changed")
+        self.spec.update(grade_checks=["contract"], reported_grader_required=True)
+        self.rollout["result"]["verifier_result"]["rewards"]["reward"] = 1
+        with self.assertRaises(Conflict):
+            self.reconcile()
+        self.assertIsNone(self.store.read("eval-test", "verify"))
+
     def test_persists_one_grade_and_one_fixture_effect_on_replay(self):
         first = self.reconcile()
         self.assertEqual(first, self.reconcile())
