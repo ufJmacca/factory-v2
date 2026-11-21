@@ -58,6 +58,12 @@ The command prints the evidence directory under `.evidence/`. Set `EVIDENCE_ROOT
 
 Compose stops the containers after the drill and retains the named volumes. The volume names for Temporal history, delivery evidence, and the fixture ledger appear in `run.txt`.
 
+## Follow a product PR through review
+
+Run `make verify-product` to reproduce PR reconciliation, approval deadlines,
+and fixture deployment. See the [product delivery guide](docs/collect-product-delivery.md)
+for live authorization, exact-revision review, and evidence recovery.
+
 ## Run one Codex engineer
 
 Run `make verify-codex` with the same Docker tooling, Python 3.12 on the host,
@@ -69,9 +75,3 @@ The check makes zero subscription model calls.
 
 The [live delivery guide](docs/collect-codex-delivery.md) covers the
 maintainer-approved subscription run and its evidence.
-
-## Follow a product PR through review
-
-Run `make verify-product` to reproduce PR reconciliation, approval deadlines,
-and fixture deployment. See the [product delivery guide](docs/collect-product-delivery.md)
-for live authorization, exact-revision review, and evidence recovery.
