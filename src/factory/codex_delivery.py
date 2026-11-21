@@ -10,11 +10,12 @@ from platform import machine, system
 from time import time
 
 from factory.agent_profile import CLI_BUILD
+from factory.codex_bridge import WorkspaceProof
 from factory.codex_runner import run_cli
 from factory.codex_transport import KEY_NAME, Proxy, proxy_model
 from factory.codex_workspace import Workspace
 from factory.evidence import Conflict, Evidence, encode
-from factory.harbor_binding import Binding
+from factory.harbor_binding import Binding, TRUSTED_WORKSPACE_MARKER
 
 
 CHATGPT_URL = "https://chatgpt.com/backend-api"
@@ -67,6 +68,8 @@ def cli_args(cli: str, cwd: Path, store: Evidence, request: dict, workspace: Wor
     ]
     if isinstance(workspace, Binding):
         mcp_args.append(workspace.rollout)
+        if request.get("workspace_marker") == TRUSTED_WORKSPACE_MARKER:
+            mcp_args.append(str(request["attempt"]))
     source = str(Path(__file__).resolve().parents[1])
     settings = {
         "model_reasoning_effort": profile["reasoning_effort"],
@@ -121,7 +124,8 @@ def prompt(store: Evidence, request: dict, profile: dict) -> bytes:
     recorded = [phase for phase in ("investigation", "red", "green", "refactor")
                 if store.read(request["run_id"], phase) is not None]
     proof = ()
-    if request.get("workspace_marker"):
+    marker_mode = request.get("workspace_marker")
+    if marker_mode and marker_mode != TRUSTED_WORKSPACE_MARKER:
         proof = (f"Before editing, use the workspace shell to write the literal string {request['run_id']} "
                  "to .git/factory-marker and read it back. This is a delivery isolation check.",)
     if request.get("evaluation"):
@@ -145,11 +149,15 @@ def dispatch(
 ) -> dict:
     run_id, attempt = request["run_id"], ticket["attempt"]
     key = f"attempt-{attempt}"
+    marker_mode = request.get("workspace_marker")
+    trusted_marker = marker_mode == TRUSTED_WORKSPACE_MARKER
     if bool(request.get("evaluation")) != (binding is not None):
         raise Conflict("evaluation requires its admitted workspace binding")
     if binding is not None and (binding.name != run_id or binding.root != store.root
                                 or request.get("evaluation", {}).get("rollout") != binding.rollout):
         raise Conflict("workspace binding differs from the admitted rollout")
+    if trusted_marker and binding is None:
+        raise Conflict("trusted workspace proof requires a Harbor binding")
     with store.lock(run_id if binding is not None else "codex-runner"):
         if (result := store.read(run_id, key)) is not None:
             return result
@@ -169,7 +177,8 @@ def dispatch(
         if time() >= request["deadline_epoch"]:
             return store.record(run_id, key, {**result, "reason": "deadline_exceeded"})
         if store.read(run_id, "submission") is not None:
-            return store.record(run_id, key, {**result, "reason": "completed"})
+            reason = "workspace_marker_missing" if trusted_marker else "completed"
+            return store.record(run_id, key, {**result, "reason": reason})
         with TemporaryDirectory(prefix="factory-codex-") as directory:
             temporary = Path(directory).resolve()
             cwd = temporary / "workspace"
@@ -218,16 +227,21 @@ def dispatch(
                     raise Conflict("workspace isolation probe failed")
                 store.record(run_id, f"{key}-workspace", probe)
                 result.update(run_cli(
-                    cli_args(cli, cwd, store, request, workspace, profile),
+                    cli_args(cli, cwd, store, {**request, "attempt": attempt} if trusted_marker else request,
+                             workspace, profile),
                     cwd, env, text, events, request["deadline_epoch"],
                     **({"cancelled": lambda: not binding.active()} if binding is not None else {}),
                 ))
-                if result["reason"] == "completed" and request.get("workspace_marker"):
-                    marker_probe = workspace.run(["cat", ".git/factory-marker"])
-                    marker_found = (not marker_probe["exit_code"] and not marker_probe["truncated"]
-                                    and marker_probe["output"].strip() == run_id)
-                    store.record(run_id, f"{key}-marker", {"assigned_workspace": marker_found, "marker": run_id})
-                    if not marker_found:
+                if result["reason"] == "completed" and marker_mode:
+                    if trusted_marker:
+                        marker_record = WorkspaceProof(store, binding, attempt).postflight()
+                    else:
+                        marker_probe = workspace.run(["cat", ".git/factory-marker"])
+                        marker_found = (not marker_probe["exit_code"] and not marker_probe["truncated"]
+                                        and marker_probe["output"].strip() == run_id)
+                        marker_record = {"assigned_workspace": marker_found, "marker": run_id}
+                    store.record(run_id, f"{key}-marker", marker_record)
+                    if not marker_record["assigned_workspace"]:
                         result["reason"] = "workspace_marker_missing"
             result["native_events"] = store.blob(events.read_bytes())
             if result["reason"] == "completed" and store.read(run_id, "submission") is None:
