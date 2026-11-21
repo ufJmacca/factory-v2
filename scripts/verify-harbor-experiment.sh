@@ -87,13 +87,15 @@ if [ ! -f "$BRIDGE_ROOT/experiment.json" ]; then
     runner evaluation.harbor.experiment_inputs \
         "$BRIDGE_ROOT" "$HARBOR_P03_ARCHIVE" "$baseline" "$build" "$worker" "$mode"
 fi
+worker=$(jq -r '.arms.baseline.runtime.worker_image' "$BRIDGE_ROOT/runs/experiment/configuration.json")
+test "$(docker image inspect "$project-outcome-worker" --format '{{.Id}}')" = "$worker"
+test "$(docker image inspect "$project-harbor" --format '{{.Id}}')" = "$(cat "$BRIDGE_ROOT/harbor-image.txt")"
 credential_dir=${BRIDGE_CREDENTIAL_DIR:-"$HOME/.codex-hub-client"}
 if [ "$mode" = live ]; then credential_dir=$(dirname "$BRIDGE_HUB_KEY_FILE"); fi
 sentinel=$(mktemp "$credential_dir/factory-phase08-sentinel.XXXXXX")
 printf 'factory bridge probe\n' > "$sentinel"
 compose up --detach --no-build --wait --wait-timeout 45 harbor-bridge outcome-worker harbor-outcome-worker \
     > "$BRIDGE_ROOT/compose.log" 2>&1
-worker=$(jq -r '.arms.baseline.runtime.worker_image' "$BRIDGE_ROOT/runs/experiment/configuration.json")
 for service in outcome-worker harbor-outcome-worker; do
     test "$(docker inspect "$(compose ps -q "$service")" --format '{{.Image}}')" = "$worker"
 done

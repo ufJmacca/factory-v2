@@ -20,6 +20,7 @@ THRESHOLDS = {
     "historical_min_rejection_reduction": 1,
     "historical_candidate_all_pass": True,
     "held_out_max_acceptance_regressions": 0,
+    "held_out_min_acceptance_gain": 1,
     "required_scored_coverage": 1.0,
     "scope": "pilot",
     "uncertainty": "Two independent held-out tasks cannot establish promotion generality.",
@@ -108,7 +109,7 @@ def pair_result(left, right):
         "assignments": {arm: row["id"] for arm, row in by_arm.items()},
         "complete": complete,
         "acceptance_regression": bool(complete and baseline["accepted"] and candidate.get("grade") == "rejected"),
-        "candidate_accepted": candidate.get("accepted"),
+        "baseline_accepted": baseline.get("accepted"), "candidate_accepted": candidate.get("accepted"),
         "baseline_rejected_calls": rejected_calls[0], "candidate_rejected_calls": rejected_calls[1],
     }
 
@@ -125,6 +126,9 @@ def report(store, plan, *, live=False):
         for p in tuning
     ):
         historical_delta = sum(p["baseline_rejected_calls"] - p["candidate_rejected_calls"] for p in tuning)
+    held_out_gain = None
+    if held_out and all(pair["complete"] for pair in held_out):
+        held_out_gain = sum(pair["candidate_accepted"] - pair["baseline_accepted"] for pair in held_out)
     prediction = "inconclusive"
     if historical_delta is not None:
         prediction = "supported" if (historical_delta >= THRESHOLDS["historical_min_rejection_reduction"]
@@ -136,13 +140,16 @@ def report(store, plan, *, live=False):
         decision, reason = "reject", "A scored held-out pair regressed from acceptance to rejection."
     elif summary["evidence_complete"] != len(plan):
         decision, reason = "hold", "Required exact-SHA grading coverage is incomplete."
+    elif held_out_gain is None or held_out_gain < THRESHOLDS["held_out_min_acceptance_gain"]:
+        decision, reason = "hold", "The minimum held-out acceptance gain was not demonstrated."
     else:
         decision, reason = "hold", THRESHOLDS["uncertainty"]
     return {
         **summary, "decision": decision, "reason": reason, "scope": THRESHOLDS["scope"],
         "historical": {"totals": totals([row for row in rows if row["task"] == TUNING]),
                        "pairs": tuning, "rejection_reduction": historical_delta, "prediction": prediction},
-        "held_out": {"totals": totals([row for row in rows if row["task"] != TUNING]), "pairs": held_out},
+        "held_out": {"totals": totals([row for row in rows if row["task"] != TUNING]),
+                     "pairs": held_out, "acceptance_gain": held_out_gain},
         "assignments": rows,
     }
 
