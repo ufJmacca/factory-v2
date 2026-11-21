@@ -5,3 +5,10 @@
 !src/
 !src/factory/
 !src/factory/verify.py
+!src/factory/*.py
+!benchmarks/
+!benchmarks/records.py
+!benchmarks/record_sources/
+!benchmarks/record_sources/*.py
+!pyproject.toml
+!uv.lock

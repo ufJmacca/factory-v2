@@ -1,0 +1,117 @@
+x-worker: &worker
+  image: ${COMPOSE_PROJECT_NAME}-delivery-worker
+  build:
+    context: .
+    dockerfile: grading/Dockerfile
+    target: delivery-worker
+  environment:
+    TEMPORAL_ADDRESS: temporal:7233
+    RECOVERY_ENVIRONMENT_DIGEST: ${RECOVERY_ENVIRONMENT_DIGEST:-}
+  networks: [recovery]
+
+x-local-service: &local-service
+  init: true
+  network_mode: none
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import socket; s = socket.socket(socket.AF_UNIX); s.connect('/rpc/service.sock')"
+    interval: 1s
+    timeout: 2s
+    retries: 20
+
+x-records-image: &records-image
+  image: ${COMPOSE_PROJECT_NAME}-recovery-service
+  build:
+    context: .
+    dockerfile: grading/Dockerfile
+    target: recovery-service
+
+services:
+  temporal:
+    image: temporalio/temporal:1.5.1@sha256:597a5dbbcc6e7716b326dde4a51622d5ea0879eb0cf06ff8a94381361d0a987d
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/home/temporal/history.sqlite", "--headless"]
+    volumes:
+      - temporal-data:/home/temporal
+    networks: [recovery]
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  candidate:
+    <<: [*local-service, *records-image]
+    command: ["candidate"]
+    volumes:
+      - candidate-rpc:/rpc
+
+  recovery-verifier:
+    <<: *local-service
+    image: ${COMPOSE_PROJECT_NAME}-recovery-verifier
+    build:
+      context: .
+      dockerfile: grading/Dockerfile
+      target: recovery-verifier
+    cap_add: [SETUID, SETGID, KILL]
+    ipc: none
+    pids_limit: 64
+    mem_limit: 192m
+    volumes:
+      - verifier-rpc:/rpc
+
+  fixture:
+    <<: [*local-service, *records-image]
+    command: ["fixture"]
+    volumes:
+      - fixture-rpc:/rpc
+      - fixture-data:/ledger
+
+  worker:
+    <<: *worker
+    init: true
+    command: ["python", "-m", "factory.delivery_worker"]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      RECOVERY_ENVIRONMENT_DIGEST: ${RECOVERY_ENVIRONMENT_DIGEST:-}
+      RECOVERY_CRASH_RUN: ${RECOVERY_CRASH_RUN:-}
+    volumes:
+      - candidate-rpc:/rpc/candidate:ro
+      - verifier-rpc:/rpc/verifier:ro
+      - fixture-rpc:/rpc/fixture:ro
+      - evidence:/evidence
+    depends_on:
+      temporal:
+        condition: service_healthy
+      candidate:
+        condition: service_healthy
+      recovery-verifier:
+        condition: service_healthy
+      fixture:
+        condition: service_healthy
+
+  control:
+    <<: *worker
+    command: ["sleep", "infinity"]
+    volumes:
+      - evidence:/evidence
+      - fixture-rpc:/rpc/fixture:ro
+
+networks:
+  recovery:
+    internal: true
+
+volumes:
+  temporal-data:
+  fixture-data:
+  evidence:
+  candidate-rpc:
+  verifier-rpc:
+  fixture-rpc:
