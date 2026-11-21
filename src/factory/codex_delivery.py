@@ -78,6 +78,9 @@ def cli_args(cli: str, cwd: Path, store: Evidence, request: dict, workspace: Wor
         "mcp_servers.factory.env.PYTHONPATH": source,
         "mcp_servers.factory.env.PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
         "mcp_servers.factory.required": True,
+        "mcp_servers.factory.enabled_tools": ["workspace", "milestone"],
+        "mcp_servers.factory.tools.workspace.approval_mode": "approve",
+        "mcp_servers.factory.tools.milestone.approval_mode": "approve",
         "mcp_servers.factory.tool_timeout_sec": 58,
     }
     transport = request.get("transport", {})
