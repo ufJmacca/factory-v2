@@ -6,6 +6,7 @@ import sys
 from factory.codex_runner import redact
 from factory.codex_workspace import Workspace
 from factory.evidence import Conflict, Evidence, encode
+from factory.harbor_binding import Binding
 
 
 PHASES = ("investigation", "red", "green", "refactor", "submission")
@@ -33,7 +34,7 @@ TOOLS = [
 
 
 class Bridge:
-    def __init__(self, store: Evidence, run_id: str, workspace: Workspace, base: str):
+    def __init__(self, store: Evidence, run_id: str, workspace: Workspace | Binding, base: str):
         self.store = store
         self.run_id = run_id
         self.workspace = workspace
@@ -134,5 +135,9 @@ def serve(bridge: Bridge):
 
 
 if __name__ == "__main__":
-    evidence_root, run_id, workspace, base = sys.argv[1:]
-    serve(Bridge(Evidence(Path(evidence_root)), run_id, Workspace(workspace), base))
+    evidence_root, run_id, workspace, base, *rollout = sys.argv[1:]
+    root = Path(evidence_root)
+    bound = Binding(root, *rollout) if rollout else Workspace(workspace)
+    if bound.name != workspace or (rollout and bound.name != run_id):
+        raise Conflict("workspace binding does not match the run")
+    serve(Bridge(Evidence(root), run_id, bound, base))

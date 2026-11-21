@@ -50,7 +50,8 @@ def subscription_failure(message: str) -> str | None:
     return None
 
 
-def run_cli(argv: list[str], cwd: Path, env: dict, prompt: bytes, events: Path, deadline: float) -> dict:
+def run_cli(argv: list[str], cwd: Path, env: dict, prompt: bytes, events: Path, deadline: float,
+            *, cancelled=lambda: False) -> dict:
     reason = None
     failure = None
     usage = None
@@ -65,6 +66,9 @@ def run_cli(argv: list[str], cwd: Path, env: dict, prompt: bytes, events: Path, 
             selector.register(read_out, EVENT_READ, "stdout")
             selector.register(read_err, EVENT_READ, "stderr")
             try:
+                if cancelled():
+                    return {"reason": "lease_lost", "exit_code": None, "event_count": 0,
+                            "usage": None, "billing": None}
                 if time() >= deadline:
                     return {"reason": "deadline_exceeded", "exit_code": None, "event_count": 0,
                             "usage": None, "billing": None}
@@ -77,7 +81,10 @@ def run_cli(argv: list[str], cwd: Path, env: dict, prompt: bytes, events: Path, 
                 os.close(write_err)
             buffers = {read_out: b"", read_err: b""}
             try:
-                while selector.get_map():
+                while selector.get_map() or process.poll() is None:
+                    if cancelled():
+                        reason = "lease_lost"
+                        break
                     remaining = deadline - time()
                     if remaining <= 0:
                         reason = "deadline_exceeded"
