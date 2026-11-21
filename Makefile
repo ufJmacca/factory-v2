@@ -40,3 +40,8 @@ verify-harbor-bridge:
 
 verify-harbor-experiment:
 	./scripts/verify-harbor-experiment.sh
+
+.PHONY: verify-fresh-pilot
+
+verify-fresh-pilot:
+	./scripts/verify-fresh-pilot.sh

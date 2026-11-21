@@ -15,9 +15,11 @@ from factory.proposal_evidence import workspace_retry
 from scripts.probe_harbor_runner import proxy_from_env
 
 
-def prepare(root, archive, baseline, build, worker, mode):
+def prepare(root, archive, baseline, build, worker, mode, *, source_repo=None, cli_build=None,
+            trusted_transport=None, checkpoints=None):
     store = Evidence(root)
     original = Path.cwd()
+    source_repo = source_repo or original
     source = original / "docs/p05"
     proposal, candidate, request = (
         json.loads((source / path).read_bytes()) for path in
@@ -49,7 +51,7 @@ def prepare(root, archive, baseline, build, worker, mode):
 
     repo = root / "configuration-repo"
     if not repo.exists():
-        git(original, "clone", "--quiet", "--shared", "--no-checkout", ".", str(repo))
+        git(source_repo, "clone", "--quiet", "--shared", "--no-checkout", ".", str(repo))
         git(repo, "checkout", "--quiet", "--detach", baseline)
         git(repo, "apply", "--index", "-", input=patch)
         git(repo, "-c", "user.name=Factory evaluation", "-c", "user.email=factory@invalid",
@@ -59,7 +61,7 @@ def prepare(root, archive, baseline, build, worker, mode):
     if (git(repo, "rev-parse", "HEAD^").decode().strip() != baseline
             or git(repo, "diff", "--name-only", baseline, revision).decode().splitlines() != [path]):
         raise Conflict("candidate Git revision changed more than the proposed skill")
-    archived_profile = resolve(original, historical["factory_commit"], store)
+    archived_profile = resolve(source_repo, historical["factory_commit"], store)
     baseline_profile = resolve(repo, baseline, store)
     candidate_profile = resolve(repo, revision, store)
     if (archived_profile["source_digest"], archived_profile["skills"][path]) != (historical["selector_sha256"], before):
@@ -68,13 +70,14 @@ def prepare(root, archive, baseline, build, worker, mode):
         raise Conflict("current selector differs from Phase 05")
     compare_profiles(baseline_profile, candidate_profile, path, before, after)
 
-    cli = subprocess.check_output([os.environ.get("FACTORY_CODEX_CLI", "codex"), "--version"], text=True).strip()
+    cli = cli_build or subprocess.check_output([os.environ.get("FACTORY_CODEX_CLI", "codex"), "--version"],
+                                               text=True).strip()
     fixed = request["fixed_inputs"]
     if (cli, baseline_profile["model"], baseline_profile["reasoning_effort"], baseline_profile["tools"],
             baseline_profile["auth_mode"], baseline_profile["api_fallback"]) != (
             fixed["cli_build"], fixed["model"], fixed["reasoning_effort"], fixed["tools"], fixed["auth_mode"], False):
         raise Conflict("CLI, model, reasoning, tool permissions or billing mode drifted")
-    transport = proxy_from_env().pin(store) if mode == "live" else {"kind": "scripted-responses"}
+    transport = (trusted_transport or proxy_from_env().pin(store)) if mode == "live" else {"kind": "scripted-responses"}
     if mode == "live" and transport != archived.read(pointer["run_id"], "request", required=True)["transport"]:
         raise Conflict("live comparison requires the original Phase 03 HTTPS Hub route")
     arms = {}
@@ -82,7 +85,10 @@ def prepare(root, archive, baseline, build, worker, mode):
         arms[arm] = {"factory_sha": profile["factory_sha"], "configuration": store.blob(encode(profile)),
                      "runtime": runtime_pin(profile, build, worker, transport)}
     tasks = store.read("experiment", "tasks", required=True)
-    bases = {name: store.blob(encode(seed(repo, task["base_sha"]))) for name, task in tasks.items()}
+    bases = {
+        name: store.blob(encode(checkpoints[name] if checkpoints is not None else seed(repo, task["base_sha"])))
+        for name, task in tasks.items()
+    }
     store.record("experiment", "configuration", {
         "arms": arms, "base_checkpoints": bases, "transport": transport, "tools": baseline_profile["tools"],
         "source": {"proposal": request["proposal_sha256"], "candidate_manifest": request["candidate_manifest_sha256"],
