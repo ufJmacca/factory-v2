@@ -1,0 +1,190 @@
+{
+  "cost": {
+    "infrastructure_usd": null,
+    "known_attempt_subtotal_usd": null,
+    "known_attempts": 0,
+    "per_accepted_usd": null,
+    "unknown_attempts": 6
+  },
+  "decision": "hold",
+  "experiment_digest": "be09a9abc9f6fb4f66edeb0724ab6b236778d62e64b4ebed3bf150db12e57e10",
+  "held_out": {
+    "pairs": [
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-03",
+          "candidate": "p08-04"
+        },
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 0,
+        "complete": true,
+        "pair": 2,
+        "task": "rpc-unknown-operation"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-06",
+          "candidate": "p08-05"
+        },
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": false,
+        "candidate_rejected_calls": 0,
+        "complete": false,
+        "pair": 2,
+        "task": "profile-preview"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-07",
+          "candidate": "p08-08"
+        },
+        "baseline_rejected_calls": null,
+        "candidate_accepted": null,
+        "candidate_rejected_calls": null,
+        "complete": false,
+        "pair": 3,
+        "task": "profile-preview"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-11",
+          "candidate": "p08-12"
+        },
+        "baseline_rejected_calls": null,
+        "candidate_accepted": null,
+        "candidate_rejected_calls": null,
+        "complete": false,
+        "pair": 1,
+        "task": "profile-preview"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-16",
+          "candidate": "p08-15"
+        },
+        "baseline_rejected_calls": null,
+        "candidate_accepted": null,
+        "candidate_rejected_calls": null,
+        "complete": false,
+        "pair": 1,
+        "task": "rpc-unknown-operation"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-18",
+          "candidate": "p08-17"
+        },
+        "baseline_rejected_calls": null,
+        "candidate_accepted": null,
+        "candidate_rejected_calls": null,
+        "complete": false,
+        "pair": 3,
+        "task": "rpc-unknown-operation"
+      }
+    ],
+    "totals": {
+      "accepted": 3,
+      "attempts": 4,
+      "cost": {
+        "infrastructure_usd": null,
+        "known_attempt_subtotal_usd": null,
+        "known_attempts": 0,
+        "per_accepted_usd": null,
+        "unknown_attempts": 4
+      },
+      "dispositions": {
+        "accepted": 3,
+        "invalid_grade": 1,
+        "stopped": 8
+      },
+      "evidence_complete": 3,
+      "planned": 12,
+      "scored": 3
+    }
+  },
+  "historical": {
+    "pairs": [
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-02",
+          "candidate": "p08-01"
+        },
+        "baseline_rejected_calls": 1,
+        "candidate_accepted": false,
+        "candidate_rejected_calls": 0,
+        "complete": false,
+        "pair": 3,
+        "task": "verified-patch"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-10",
+          "candidate": "p08-09"
+        },
+        "baseline_rejected_calls": null,
+        "candidate_accepted": null,
+        "candidate_rejected_calls": null,
+        "complete": false,
+        "pair": 2,
+        "task": "verified-patch"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-14",
+          "candidate": "p08-13"
+        },
+        "baseline_rejected_calls": null,
+        "candidate_accepted": null,
+        "candidate_rejected_calls": null,
+        "complete": false,
+        "pair": 1,
+        "task": "verified-patch"
+      }
+    ],
+    "prediction": "inconclusive",
+    "rejection_reduction": null,
+    "totals": {
+      "accepted": 1,
+      "attempts": 2,
+      "cost": {
+        "infrastructure_usd": null,
+        "known_attempt_subtotal_usd": null,
+        "known_attempts": 0,
+        "per_accepted_usd": null,
+        "unknown_attempts": 2
+      },
+      "dispositions": {
+        "accepted": 1,
+        "invalid_grade": 1,
+        "stopped": 4
+      },
+      "evidence_complete": 1,
+      "planned": 6,
+      "scored": 1
+    }
+  },
+  "reason": "Scripted trials exercise the comparison path. Live quality evidence is pending.",
+  "resources": {
+    "agent_containers": 6,
+    "batch_seconds_used": 129.21,
+    "calibration_trials": 6,
+    "execution_reservations": 6,
+    "fixture_effects": 4,
+    "harbor_jobs": 6,
+    "production_effects": 0,
+    "subscription_execution_upper_bound": 0,
+    "verifier_grades_observed": 6
+  },
+  "scope": "pilot",
+  "tested_sha": "329a5d845a65d7f8c2eafee6164a870b17b15c1e"
+}
