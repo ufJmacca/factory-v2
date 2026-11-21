@@ -1,6 +1,6 @@
 from collections import Counter
 import json
-from math import isfinite
+from math import comb, isfinite
 from random import Random
 
 from factory.evidence import Conflict, digest, encode, validate_run_id
@@ -114,14 +114,43 @@ def pair_result(left, right):
     }
 
 
-def report(store, plan, *, live=False):
+def paired_effects(pairs):
+    complete = [pair for pair in pairs if pair["complete"]]
+    outcomes = Counter((pair["baseline_accepted"], pair["candidate_accepted"]) for pair in complete)
+    wins, losses = outcomes[False, True], outcomes[True, False]
+    discordances = wins + losses
+    sign_probability = sum(comb(discordances, count) for count in range(wins, discordances + 1)) / 2**discordances
+    differences = [pair["baseline_rejected_calls"] - pair["candidate_rejected_calls"] for pair in complete
+                   if pair["baseline_rejected_calls"] is not None and pair["candidate_rejected_calls"] is not None]
+    return {
+        "acceptance_pairs": {
+            "candidate_only": wins, "baseline_only": losses, "both_accepted": outcomes[True, True],
+            "both_rejected": outcomes[False, False], "one_sided_sign_probability": sign_probability,
+        },
+        "mechanism": {
+            "pairs_measured": len(differences), "pairs_with_fewer_rejections": sum(delta > 0 for delta in differences),
+            "rejection_reduction": sum(differences) if len(differences) == len(pairs) else None,
+        },
+    }
+
+
+def fresh_pilot_decision(historical, mechanism):
+    if len(historical) != 1 or not all(historical[0][key] for key in ("baseline_accepted", "candidate_accepted")):
+        return "hold", "Both historical control assignments must pass."
+    reduction = mechanism["rejection_reduction"]
+    if reduction is None or reduction < 2 or mechanism["pairs_with_fewer_rejections"] < 2:
+        return "hold", "The reduction in extra-argument rejections did not meet the held-out rule."
+    return "eligible_for_review", "The pilot met its quality and workspace-rejection gates for scoped review."
+
+
+def report(store, plan, *, live=False, fresh_pilot=False):
     rows = [store.read(row["id"], "experiment-terminal")
             or {**row, "disposition": "pending", "attempt": None} for row in plan]
     pairs = [pair_result(*rows[i:i + 2]) for i in range(0, len(rows), 2)]
     tuning = [pair for pair in pairs if pair["task"] == TUNING]
     held_out = [pair for pair in pairs if pair["task"] != TUNING]
     historical_delta = None
-    if len(tuning) == REPETITIONS and all(
+    if len(tuning) == (1 if fresh_pilot else REPETITIONS) and all(
         p["complete"] and p["baseline_rejected_calls"] is not None and p["candidate_rejected_calls"] is not None
         for p in tuning
     ):
@@ -134,6 +163,7 @@ def report(store, plan, *, live=False):
         prediction = "supported" if (historical_delta >= THRESHOLDS["historical_min_rejection_reduction"]
                                      and all(p["candidate_accepted"] for p in tuning)) else "disproved"
     summary = totals(rows)
+    effects = paired_effects(held_out) if fresh_pilot else {}
     if not live:
         decision, reason = "hold", "Scripted trials exercise the comparison path. Live quality evidence is pending."
     elif any(pair["acceptance_regression"] for pair in held_out):
@@ -142,14 +172,17 @@ def report(store, plan, *, live=False):
         decision, reason = "hold", "Required exact-SHA grading coverage is incomplete."
     elif held_out_gain is None or held_out_gain < THRESHOLDS["held_out_min_acceptance_gain"]:
         decision, reason = "hold", "The minimum held-out acceptance gain was not demonstrated."
+    elif fresh_pilot:
+        decision, reason = fresh_pilot_decision(tuning, effects["mechanism"])
     else:
         decision, reason = "hold", THRESHOLDS["uncertainty"]
     return {
-        **summary, "decision": decision, "reason": reason, "scope": THRESHOLDS["scope"],
+        **summary, "decision": decision, "reason": reason,
+        "scope": "scoped-pilot-review" if fresh_pilot else THRESHOLDS["scope"],
         "historical": {"totals": totals([row for row in rows if row["task"] == TUNING]),
                        "pairs": tuning, "rejection_reduction": historical_delta, "prediction": prediction},
         "held_out": {"totals": totals([row for row in rows if row["task"] != TUNING]),
-                     "pairs": held_out, "acceptance_gain": held_out_gain},
+                     "pairs": held_out, "acceptance_gain": held_out_gain, **effects},
         "assignments": rows,
     }
 
