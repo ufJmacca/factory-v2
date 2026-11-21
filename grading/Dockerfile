@@ -13,3 +13,7 @@ ENV UV_PYTHON_DOWNLOADS=never \
 WORKDIR /workspace
 
 FROM python-git AS verifier
+RUN install -d -m 0700 /grading
+COPY --chmod=0400 grading/checks.json /grading/checks.json
+COPY src/factory/verify.py /grading/verify.py
+ENTRYPOINT ["python", "-IB", "/grading/verify.py"]
