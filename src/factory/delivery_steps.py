@@ -79,6 +79,7 @@ class Delivery:
         with self.store.lock(run_id):
             require(request["environment_digest"] == self.environment, "environment digest changed")
             require(self.store.read(run_id, "request") == request, "run request changed")
+            require(request["schema_version"] == 1 and request["fixture"] == "records", "unsupported request")
             red = self.store.read(run_id, "red")
             if red is None:
                 snapshot = self.candidate("start", run_id=run_id)
@@ -128,8 +129,11 @@ class Delivery:
                 for name in ("submission_checkpoint", "green_checkpoint")
                 if not self.store.path(artifacts[name]).exists()
             }
+            check_submissions(prepared, {name: self.store.read_blob(ref) for name, ref in artifacts.items()})
             if selected is None:
                 recovery = {"status": "interrupted", "reason": "missing_verified_checkpoint"}
+                if self.store.read(run_id, "intent") is not None:
+                    self.reconcile(run_id, prepared, artifacts, after_apply, allow_apply=False)
             else:
                 step, data = selected
                 snapshot = json.loads(data)
@@ -140,12 +144,6 @@ class Delivery:
                 require(snapshot["base_sha"] == prepared["base_sha"], "checkpoint base mismatch")
                 require(digest(b64decode(snapshot["bundle"], validate=True)) == artifacts["submitted_bundle"],
                         "checkpoint bundle differs from the verified submission")
-                check_verdict(
-                    json.loads(self.store.read_blob(artifacts["verifier_verdict"])),
-                    base=prepared["base_sha"], head=prepared["submitted_sha"],
-                    checks=self.store.read_blob(artifacts["checks"]),
-                    bundle_digest=artifacts["submitted_bundle"], decision="accepted", reason="checks_passed",
-                )
                 restored_tree = self.candidate("restore", run_id=run_id, snapshot=snapshot)
                 require(restored_tree == snapshot["tree"], "candidate restored a different tree")
                 recovery = {
@@ -164,7 +162,7 @@ class Delivery:
             check_manifest(self.store, manifest)
             return self.store.record(run_id, "manifest", manifest)
 
-    def reconcile(self, run_id: str, prepared: dict, artifacts: dict, after_apply):
+    def reconcile(self, run_id: str, prepared: dict, artifacts: dict, after_apply, *, allow_apply=True):
         operation_id = f"records-delivery:{run_id}"
         effect = {
             "schema_version": 1, "operation_id": operation_id,
@@ -173,23 +171,23 @@ class Delivery:
         request_digest = digest(encode(effect))
         intent = {**effect, "request_digest": request_digest}
         self.store.record(run_id, "intent", intent)
+        artifacts["intent"] = self.store.blob(encode(intent))
         retained = self.store.read(run_id, "receipt")
         receipt = self.fixture("lookup", operation_id=operation_id)
         if retained is not None:
             require(receipt == retained, "fixture receipt differs from retained receipt")
-        if receipt is None:
+        needs_apply = receipt is None and allow_apply
+        if needs_apply:
             receipt = self.fixture("apply", operation_id=operation_id, request_digest=request_digest)
+        if receipt is not None:
             validate_receipt(receipt, operation_id, request_digest)
-            after_apply()
-        validate_receipt(receipt, operation_id, request_digest)
-        self.store.record(run_id, "receipt", receipt)
-        artifacts.update(intent=self.store.blob(encode(intent)), receipt=self.store.blob(encode(receipt)))
+            if needs_apply:
+                after_apply()
+            self.store.record(run_id, "receipt", receipt)
+            artifacts["receipt"] = self.store.blob(encode(receipt))
 
 
-def check_manifest(store: Evidence, manifest: dict):
-    require(manifest["schema_version"] == 1, "unsupported manifest schema")
-    artifacts = manifest["artifacts"]
-    blobs = {name: store.read_blob(reference) for name, reference in artifacts.items()}
+def check_submissions(manifest: dict, blobs: dict[str, bytes]):
     for prefix, head, decision, reason in (
         ("red", manifest["base_sha"], "rejected", "check_failed:final_record_without_newline"),
         ("submitted", manifest["submitted_sha"], "accepted", "checks_passed"),
@@ -199,16 +197,40 @@ def check_manifest(store: Evidence, manifest: dict):
             json.loads(blobs[verdict_name]), base=manifest["base_sha"], head=head, checks=blobs["checks"],
             bundle_digest=digest(blobs[f"{prefix}_bundle"]), decision=decision, reason=reason,
         )
+
+
+def check_manifest(store: Evidence, manifest: dict):
+    require(manifest["schema_version"] == 1, "unsupported manifest schema")
+    require(manifest["verdict"] == "accepted", "invalid submitted verdict")
+    request = store.read(manifest["run_id"], "request")
+    require(digest(encode(request)) == manifest["request_digest"], "retained request digest differs")
+    artifacts = manifest["artifacts"]
+    blobs = {name: store.read_blob(reference) for name, reference in artifacts.items()}
+    check_submissions(manifest, blobs)
+    recovery = manifest["recovery"]
     if manifest["status"] == "delivered":
-        intent, receipt = json.loads(blobs["intent"]), json.loads(blobs["receipt"])
+        checkpoint_name = f"{recovery['checkpoint_step']}_checkpoint"
+        require(artifacts[checkpoint_name] == recovery["checkpoint_digest"], "recovery checkpoint differs")
+        snapshot = json.loads(blobs[checkpoint_name])
+        require(snapshot["tree"] == recovery["tree"], "recovered tree differs")
+        require("receipt" in blobs, "delivered run is missing a receipt")
+    else:
+        require(manifest["status"] == recovery["status"] == "interrupted", "invalid terminal status")
+        require({"submission_checkpoint", "green_checkpoint"} <= manifest["missing_artifacts"].keys(),
+                "interrupted run has a verified checkpoint")
+
+    if "intent" in blobs or "receipt" in blobs:
+        intent = json.loads(blobs["intent"])
         require(store.read(manifest["run_id"], "intent") == intent, "retained intent differs")
-        require(store.read(manifest["run_id"], "receipt") == receipt, "retained receipt differs")
         request_digest = intent.pop("request_digest")
         require(intent["operation_id"] == f"records-delivery:{manifest['run_id']}", "operation ID differs")
         require(intent["submitted_sha"] == manifest["submitted_sha"], "effect head differs")
         require(intent["verifier_verdict"] == artifacts["verifier_verdict"], "effect verdict differs")
         require(request_digest == digest(encode(intent)), "effect request digest differs")
-        validate_receipt(receipt, intent["operation_id"], request_digest)
+        if "receipt" in blobs:
+            receipt = json.loads(blobs["receipt"])
+            require(store.read(manifest["run_id"], "receipt") == receipt, "retained receipt differs")
+            validate_receipt(receipt, intent["operation_id"], request_digest)
 
 
 def reopen(store: Evidence, run_id: str) -> dict:

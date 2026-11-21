@@ -100,6 +100,7 @@ while [ "$(docker inspect --format '{{.State.Running}}' "$worker")" = true ]; do
     fi
     sleep 1
 done
+docker inspect --format '{{json .State}}' "$worker" > "$evidence/killed-worker.json"
 test "$(docker inspect --format '{{.State.ExitCode}}' "$worker")" = 137
 control status "$crash" > "$evidence/crash-pending.json"
 control fixture > "$evidence/fixture-before-restart.json"
@@ -109,12 +110,19 @@ compose exec -T candidate test -d "/tmp/checkouts/$crash/.git"
 compose rm -sf worker candidate
 unset RECOVERY_CRASH_RUN
 compose up -d --no-build --wait --wait-timeout 25 candidate
-test "$(compose ps -q candidate)" != "$candidate"
+new_candidate=$(compose ps -q candidate)
+test "$new_candidate" != "$candidate"
 compose exec -T candidate test ! -e "/tmp/checkouts/$crash"
 compose exec -T temporal sh -c 'test -s /home/temporal/history.sqlite'
 test "$(compose ps -q temporal)" = "$temporal"
 compose up -d --no-build --wait --wait-timeout 25 worker
-test "$(compose ps -q worker)" != "$worker"
+new_worker=$(compose ps -q worker)
+test "$new_worker" != "$worker"
+{
+    printf 'worker %s %s\n' "$worker" "$new_worker"
+    printf 'candidate %s %s\n' "$candidate" "$new_candidate"
+    printf 'temporal %s %s\n' "$temporal" "$(compose ps -q temporal)"
+} > "$evidence/replacements.txt"
 containers
 
 control wait "$crash" > "$evidence/crash-result.json"

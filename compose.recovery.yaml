@@ -10,6 +10,7 @@ x-worker: &worker
   networks: [recovery]
 
 x-local-service: &local-service
+  init: true
   network_mode: none
   read_only: true
   cap_drop: [ALL]

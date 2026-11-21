@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -6,6 +7,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from factory import checkpoint, evidence, fixture
+from factory.delivery_steps import Delivery, reopen
+from factory.verify import verify
 from factory.records_workspace import Candidate
 
 
@@ -82,6 +85,105 @@ class RecoveryTest(unittest.TestCase):
         self.assertEqual(evidence.Evidence(self.root).admit(dict(request)), request)
         with self.assertRaises(evidence.Conflict):
             store.admit({**request, "fixture": "different"})
+
+
+class DeliveryTest(unittest.TestCase):
+    def setUp(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        self.store = evidence.Evidence(root / "evidence")
+        self.candidate = Candidate(root / "candidate")
+        self.ledger = fixture.Ledger(root / "fixture.sqlite")
+        self.checks = Path(__file__).resolve().parents[1] / "grading" / "checks.json"
+        self.bundle = root / "submission.bundle"
+        self.delivery = Delivery(self.store, self.checks.read_bytes(), "test-env", root)
+        self.delivery.candidate = lambda operation, **args: getattr(self.candidate, operation)(**args)
+        self.delivery.fixture = lambda operation, **args: getattr(self.ledger, operation)(**args)
+        self.delivery.verifier = self.verify_bundle
+        self.run_id = "delivery"
+        base = self.candidate.start(self.run_id)["base_sha"]
+        self.request = self.store.admit({
+            "schema_version": 1, "run_id": self.run_id, "fixture": "records",
+            "base_sha": base, "environment_digest": "test-env",
+        })
+        self.execution = {
+            "workflow_id": "records-delivery/delivery", "temporal_run_id": "execution",
+            "delivery_attempt": 2,
+        }
+        self.prepared = self.delivery.prepare(self.request)
+        self.candidate.discard(self.run_id)
+
+    def verify_bundle(self, operation, *, base, head, bundle, check_digest):
+        self.bundle.write_bytes(checkpoint.decode(bundle))
+        verdict = verify(base=base, head=head, bundle=self.bundle, check_file=self.checks, check_digest=check_digest)
+        return {"verdict": evidence.encode(asdict(verdict)).decode(),
+                "exit_code": int(verdict.decision == "rejected")}
+
+    def remove_artifact(self, name):
+        self.store.path(self.prepared["artifacts"][name]).unlink()
+
+    def deliver(self, after_apply=lambda: None):
+        return self.delivery.deliver(self.request, self.prepared, self.execution, after_apply)
+
+    def test_missing_verified_checkpoints_publish_interrupted_manifest_without_effect(self):
+        self.remove_artifact("submission_checkpoint")
+        self.remove_artifact("green_checkpoint")
+        manifest = self.deliver()
+        self.assertEqual(manifest, reopen(self.store, self.run_id))
+        self.assertEqual(manifest["status"], "interrupted")
+        self.assertEqual(manifest["recovery"]["reason"], "missing_verified_checkpoint")
+        self.assertEqual(manifest["submitted_sha"], self.prepared["submitted_sha"])
+        self.assertEqual(set(manifest["missing_artifacts"]), {"submission_checkpoint", "green_checkpoint"})
+        self.assertEqual(self.ledger.inspect()["effect_count"], 0)
+
+    def test_interruption_retains_an_effect_applied_before_checkout_loss(self):
+        def lose_worker():
+            raise RuntimeError("worker stopped before acknowledgement")
+
+        with self.assertRaises(RuntimeError):
+            self.deliver(lose_worker)
+        original = self.ledger.lookup("records-delivery:delivery")
+        self.assertIsNotNone(original)
+        self.assertIsNone(self.store.read(self.run_id, "receipt"))
+        self.remove_artifact("submission_checkpoint")
+        self.remove_artifact("green_checkpoint")
+        manifest = self.deliver()
+        self.assertEqual(manifest, reopen(self.store, self.run_id))
+        self.assertEqual(manifest["status"], "interrupted")
+        self.assertEqual(self.store.read(self.run_id, "receipt"), original)
+        self.assertEqual(self.ledger.inspect()["effects"], [{**original, "apply_requests": 1}])
+
+    def test_missing_submission_restores_verified_green_before_applying(self):
+        self.remove_artifact("submission_checkpoint")
+
+        def after_apply():
+            self.assertEqual(
+                (self.candidate.checkout(self.run_id) / "final-record.txt").read_bytes(), b"one\ntwo",
+            )
+            self.assertIsNotNone(self.store.read(self.run_id, "intent"))
+
+        manifest = self.deliver(after_apply)
+        self.assertEqual(manifest, reopen(self.store, self.run_id))
+        self.assertEqual(manifest["status"], "delivered")
+        self.assertEqual(manifest["recovery"]["status"], "restored")
+        self.assertEqual(manifest["recovery"]["checkpoint_step"], "green")
+        self.assertEqual(manifest["submitted_sha"], self.prepared["submitted_sha"])
+        self.assertEqual(self.ledger.inspect()["effect_count"], 1)
+
+    def test_conflicting_receipt_prevents_delivery(self):
+        conflicting = self.ledger.apply("records-delivery:delivery", "e" * 64)
+        with self.assertRaises(evidence.Conflict):
+            self.deliver()
+        self.assertIsNone(self.store.read(self.run_id, "manifest"))
+        self.assertIsNone(self.store.read(self.run_id, "receipt"))
+        self.assertEqual(self.ledger.inspect()["effects"], [{**conflicting, "apply_requests": 1}])
+
+    def test_missing_verified_bundle_prevents_effect(self):
+        self.remove_artifact("submitted_bundle")
+        with self.assertRaises(FileNotFoundError):
+            self.deliver()
+        self.assertEqual(self.ledger.inspect()["effect_count"], 0)
 
 
 if __name__ == "__main__":

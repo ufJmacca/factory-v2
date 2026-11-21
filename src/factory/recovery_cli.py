@@ -31,6 +31,9 @@ async def run(args):
             "schema_version": 1, "run_id": run_id, "fixture": "records", "base_sha": args.base,
             "environment_digest": os.environ["RECOVERY_ENVIRONMENT_DIGEST"],
         })
+        original_execution = store.read(run_id, "execution")
+        if original_execution is not None:
+            return original_execution
     client = await Client.connect(os.environ["TEMPORAL_ADDRESS"])
     if args.command == "submit":
         try:
@@ -41,11 +44,15 @@ async def run(args):
             )
         except WorkflowAlreadyStartedError:
             handle = client.get_workflow_handle(workflow_id)
+            started = await anext(handle.fetch_history_events(page_size=1))
+            payloads = started.workflow_execution_started_event_attributes.input.payloads
+            if await client.data_converter.decode(payloads) != [request]:
+                raise Conflict("existing Temporal workflow has a different request")
         execution = await handle.describe()
-        return {
+        return store.record(run_id, "execution", {
             "run_id": run_id, "workflow_id": workflow_id, "temporal_run_id": execution.run_id,
             "request_digest": digest(encode(request)),
-        }
+        })
     handle = client.get_workflow_handle(workflow_id)
     if args.command == "wait":
         return await asyncio.wait_for(handle.result(), timeout=100)

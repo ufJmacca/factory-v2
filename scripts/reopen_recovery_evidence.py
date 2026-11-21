@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 
@@ -5,7 +6,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from factory.delivery_steps import reopen, require
 from factory.evidence import Evidence, digest
-import json
 
 
 def verify_drill(directory: Path, crash: str, fresh: str):
@@ -21,6 +21,16 @@ def verify_drill(directory: Path, crash: str, fresh: str):
             "conflicting request failed for the wrong reason")
     require(before.read(crash, "receipt") is None, "worker retained a receipt before dying")
     require(before.read(crash, "manifest") is None, "worker published a manifest before dying")
+    killed = read("killed-worker")
+    require(killed["ExitCode"] == 137 and not killed["Running"] and not killed["OOMKilled"],
+            "worker did not exit through the SIGKILL failpoint")
+    replacements = {
+        name: (old, new)
+        for name, old, new in (line.split() for line in (directory / "replacements.txt").read_text().splitlines())
+    }
+    for name in ("worker", "candidate", "temporal"):
+        old, new = replacements[name]
+        require((old == new) == (name == "temporal"), f"unexpected container identity: {name}")
     pending = read("crash-pending")
     require(pending["status"] == "RUNNING" and pending["temporal_run_id"] == started["temporal_run_id"],
             "original workflow did not remain open after the kill")
