@@ -1,0 +1,273 @@
+{
+  "cap": {
+    "approval": "Explicit maintainer approval in Codex chat",
+    "batch_seconds": 14400,
+    "concurrency": 1,
+    "max_executions": 18,
+    "retries": 0
+  },
+  "cost": {
+    "infrastructure_usd": null,
+    "known_attempt_subtotal_usd": null,
+    "known_attempts": 0,
+    "per_accepted_usd": null,
+    "unknown_attempts": 18
+  },
+  "decision": "hold",
+  "evidence_reopen": {
+    "counts": {
+      "accepted": 15,
+      "attempts": 18,
+      "reservations": 18,
+      "scored": 15,
+      "unknown_cost": 18,
+      "usage_reported": 18
+    },
+    "experiment_digest": "f359bfbfce4949be61d2f046ac87f21fd9f3531e1a6609922a072dc49052ed45",
+    "fixture_effects": 15,
+    "jobs": 18,
+    "planned": 18,
+    "rollouts": 18,
+    "temporal_runs": 18
+  },
+  "experiment_digest": "f359bfbfce4949be61d2f046ac87f21fd9f3531e1a6609922a072dc49052ed45",
+  "held_out": {
+    "acceptance_gain": null,
+    "pairs": [
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-03",
+          "candidate": "p08-04"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 0,
+        "complete": true,
+        "pair": 2,
+        "task": "rpc-unknown-operation"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-06",
+          "candidate": "p08-05"
+        },
+        "baseline_accepted": false,
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": false,
+        "candidate_rejected_calls": 1,
+        "complete": false,
+        "pair": 2,
+        "task": "profile-preview"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-07",
+          "candidate": "p08-08"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 0,
+        "complete": true,
+        "pair": 3,
+        "task": "profile-preview"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-11",
+          "candidate": "p08-12"
+        },
+        "baseline_accepted": false,
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 0,
+        "complete": false,
+        "pair": 1,
+        "task": "profile-preview"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-16",
+          "candidate": "p08-15"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 0,
+        "complete": true,
+        "pair": 1,
+        "task": "rpc-unknown-operation"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-18",
+          "candidate": "p08-17"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 0,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 0,
+        "complete": true,
+        "pair": 3,
+        "task": "rpc-unknown-operation"
+      }
+    ],
+    "totals": {
+      "accepted": 9,
+      "attempts": 12,
+      "cost": {
+        "infrastructure_usd": null,
+        "known_attempt_subtotal_usd": null,
+        "known_attempts": 0,
+        "per_accepted_usd": null,
+        "unknown_attempts": 12
+      },
+      "dispositions": {
+        "accepted": 9,
+        "incomplete": 3
+      },
+      "evidence_complete": 9,
+      "planned": 12,
+      "scored": 9
+    }
+  },
+  "historical": {
+    "pairs": [
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-02",
+          "candidate": "p08-01"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 2,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 3,
+        "complete": true,
+        "pair": 3,
+        "task": "verified-patch"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-10",
+          "candidate": "p08-09"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 5,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 5,
+        "complete": true,
+        "pair": 2,
+        "task": "verified-patch"
+      },
+      {
+        "acceptance_regression": false,
+        "assignments": {
+          "baseline": "p08-14",
+          "candidate": "p08-13"
+        },
+        "baseline_accepted": true,
+        "baseline_rejected_calls": 4,
+        "candidate_accepted": true,
+        "candidate_rejected_calls": 1,
+        "complete": true,
+        "pair": 1,
+        "task": "verified-patch"
+      }
+    ],
+    "prediction": "supported",
+    "rejection_reduction": 2,
+    "totals": {
+      "accepted": 6,
+      "attempts": 6,
+      "cost": {
+        "infrastructure_usd": null,
+        "known_attempt_subtotal_usd": null,
+        "known_attempts": 0,
+        "per_accepted_usd": null,
+        "unknown_attempts": 6
+      },
+      "dispositions": {
+        "accepted": 6
+      },
+      "evidence_complete": 6,
+      "planned": 6,
+      "scored": 6
+    }
+  },
+  "per_task": [
+    {
+      "arms": [
+        {
+          "accepted": 1,
+          "arm": "baseline",
+          "planned": 3,
+          "scored": 1
+        },
+        {
+          "accepted": 2,
+          "arm": "candidate",
+          "planned": 3,
+          "scored": 2
+        }
+      ],
+      "task": "profile-preview"
+    },
+    {
+      "arms": [
+        {
+          "accepted": 3,
+          "arm": "baseline",
+          "planned": 3,
+          "scored": 3
+        },
+        {
+          "accepted": 3,
+          "arm": "candidate",
+          "planned": 3,
+          "scored": 3
+        }
+      ],
+      "task": "rpc-unknown-operation"
+    },
+    {
+      "arms": [
+        {
+          "accepted": 3,
+          "arm": "baseline",
+          "planned": 3,
+          "scored": 3
+        },
+        {
+          "accepted": 3,
+          "arm": "candidate",
+          "planned": 3,
+          "scored": 3
+        }
+      ],
+      "task": "verified-patch"
+    }
+  ],
+  "reason": "Required exact-SHA grading coverage is incomplete.",
+  "resources": {
+    "agent_containers": 18,
+    "batch_seconds_used": 3812.54,
+    "calibration_trials": 6,
+    "execution_reservations": 18,
+    "fixture_effects": 15,
+    "harbor_jobs": 18,
+    "production_effects": 0,
+    "subscription_execution_upper_bound": 18,
+    "verifier_grades_observed": 15
+  },
+  "scope": "pilot",
+  "tested_sha": "2986602ea37cce8f378d79e331ac5f4de0068cc2"
+}

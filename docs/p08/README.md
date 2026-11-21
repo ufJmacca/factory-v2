@@ -48,10 +48,13 @@ make verify-harbor-experiment
 
 ## Review the recorded decision
 
-- [Frozen scripted experiment](frozen-experiment.json)
-- [Assignment ledger](assignment-ledger.json)
-- [Historical and held-out pairs](paired-results.json)
+- [Frozen live experiment](live-frozen-experiment.json)
+- [Live assignment ledger](live-assignment-ledger.json)
+- [Live historical and held-out pairs](live-paired-results.json)
 - [Decision record](decision.md)
+
+The scripted [plan](frozen-experiment.json), [ledger](assignment-ledger.json),
+and [paired results](paired-results.json) record the preflight comparison.
 
 The committed records contain identifiers, digests, and counts. The full
 records, credentials, traces, and protected contract inputs are on the
