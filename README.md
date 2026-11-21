@@ -58,6 +58,18 @@ The command prints the evidence directory under `.evidence/`. Set `EVIDENCE_ROOT
 
 Compose stops the containers after the drill and retains the named volumes. The volume names for Temporal history, delivery evidence, and the fixture ledger appear in `run.txt`.
 
+## Run one Codex engineer
+
+Run `make verify-codex` with the same Docker tooling, Python 3.12 on the host,
+and Codex CLI 0.162.1. The command runs the regression tests in Compose. It
+also drives the installed CLI against a local scripted endpoint, records red
+and green, and reopens the submitted revision in a fresh offline container.
+Set `FACTORY_HOST_PYTHON` or `FACTORY_CODEX_CLI` to select an installed binary.
+The check makes zero subscription model calls.
+
+The [live delivery guide](docs/collect-codex-delivery.md) covers the
+maintainer-approved subscription run and its evidence.
+
 ## Retrieve a verified patch
 
 From the factory checkout, pass the exported PR 02 `archive` directory (the one containing

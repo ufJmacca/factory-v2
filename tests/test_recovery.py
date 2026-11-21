@@ -39,6 +39,18 @@ class RecoveryTest(unittest.TestCase):
         self.assertTrue((restored / "required.bin").stat().st_mode & 0o100)
         self.assertEqual(checkpoint.git(restored, "rev-parse", "HEAD").strip().decode(), red["base_sha"])
 
+    def test_restores_untracked_files_below_a_symlinked_temporary_parent(self):
+        candidate = Candidate(self.root / "original")
+        initial = candidate.start("delivery")
+        repo = candidate.root / "delivery"
+        (repo / "untracked.txt").write_text("retained check input")
+        snapshot = checkpoint.capture(repo, initial["base_sha"])
+        alias = self.root / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        restored = alias / "restored"
+        checkpoint.restore(restored, snapshot)
+        self.assertEqual((restored / "untracked.txt").read_text(), "retained check input")
+
     def test_tampered_checkpoint_cannot_restore(self):
         candidate = Candidate(self.root / "candidate")
         snapshot = candidate.start("delivery")
