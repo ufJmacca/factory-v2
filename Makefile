@@ -20,3 +20,8 @@ verify-codex:
 
 verify-product:
 	./scripts/verify-product.sh
+
+.PHONY: verify-proposal
+
+verify-proposal:
+	./scripts/verify-proposal.sh
