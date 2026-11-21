@@ -12,9 +12,10 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
 from factory.codex_evidence import reopen
-from factory.delivery import OUTCOME_QUEUE, OutcomeDelivery, ProductDelivery
+from factory.delivery import EVALUATION_QUEUE, OUTCOME_QUEUE, OutcomeDelivery, ProductDelivery
 from factory.delivery_steps import require
 from factory.evidence import Evidence, digest, encode, timestamp
+from factory.harbor_receipt import apply_fixture
 from factory.product import finish as finish_product, reopen_product, validate_request, verify_submission
 
 
@@ -41,6 +42,11 @@ class OutcomeActivities:
     def read(self, request, ticket):
         return self.store.read(self.run_id(request), action_key(ticket))
 
+    @activity.defn(name="apply_harbor_fixture")
+    def apply_harbor_fixture(self, request, verification):
+        self.run_id(request)
+        return apply_fixture(self.store, request, verification)
+
     @activity.defn(name="finish_codex_delivery")
     def finish(self, request, execution):
         run_id = self.run_id(request)
@@ -51,7 +57,7 @@ class OutcomeActivities:
             "grader": request["grader_digest"],
         }
         attempts = [f"attempt-{n}{suffix}" for n in range(1, request["max_attempts"] + 1)
-                    for suffix in ("", "-intent", "-workspace")]
+                    for suffix in ("", "-intent", "-workspace", "-marker")]
         for name in ("investigation", "red", "green", "refactor", "submission", *attempts):
             if (record := self.store.read(run_id, name)) is not None:
                 artifacts[name] = self.store.blob(encode(record))
@@ -62,6 +68,14 @@ class OutcomeActivities:
         verdict = self.store.read(run_id, "verify")
         if verdict and "verdict" in verdict:
             artifacts.update(independent_verdict=verdict["verdict"], submitted_bundle=verdict["bundle"])
+        if request.get("evaluation"):
+            for name in ("harbor-export", "harbor-grade", "harbor-fixture", "provider-start", "provider-stop"):
+                if (record := self.store.read(run_id, name)) is not None:
+                    artifacts[name] = self.store.blob(encode(record))
+            if verified:
+                require(all(name in artifacts for name in ("harbor-export", "harbor-grade", "harbor-fixture",
+                                                           "provider-start", "provider-stop")),
+                        "Harbor delivery is missing its grade, fixture or provider evidence")
         missing = {}
         if execution["reason"] == "pinned_configuration_unavailable":
             for name, ref in list(artifacts.items()):
@@ -116,7 +130,8 @@ async def submit(client, store, run_id, *, product=False):
     workflow_id = f"deliver-{'product' if product else 'outcome'}/{run_id}"
     try:
         return await client.start_workflow(
-            definition, request, id=workflow_id, task_queue=OUTCOME_QUEUE,
+            definition, request, id=workflow_id,
+            task_queue=EVALUATION_QUEUE if request.get("evaluation") else OUTCOME_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
         )
     except WorkflowAlreadyStartedError:
@@ -142,12 +157,15 @@ async def main(mode, run_id=None):
         return
     activities = OutcomeActivities(store)
     product = ProductActivities(store)
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    queue = os.environ.get("OUTCOME_TASK_QUEUE", OUTCOME_QUEUE)
+    slots = 2 if queue == EVALUATION_QUEUE else 1
+    with ThreadPoolExecutor(max_workers=slots) as executor:
         await Worker(
-            client, workflows=[OutcomeDelivery, ProductDelivery], task_queue=OUTCOME_QUEUE,
-            activities=[activities.queue, activities.read, activities.finish, product.dispatch,
+            client, workflows=[OutcomeDelivery, ProductDelivery], task_queue=queue,
+            activities=[activities.queue, activities.read, activities.finish, activities.apply_harbor_fixture,
+                        product.dispatch,
                         product.read_product, product.expire],
-            activity_executor=executor, max_concurrent_activities=1,
+            activity_executor=executor, max_concurrent_activities=slots,
         ).run()
 
 

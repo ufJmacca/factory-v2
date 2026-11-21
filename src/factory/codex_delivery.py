@@ -1,8 +1,10 @@
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+from shlex import quote
 from tempfile import TemporaryDirectory
 from platform import machine, system
 from time import time
@@ -12,6 +14,7 @@ from factory.codex_runner import run_cli
 from factory.codex_transport import KEY_NAME, Proxy, proxy_model
 from factory.codex_workspace import Workspace
 from factory.evidence import Conflict, Evidence, encode
+from factory.harbor_binding import Binding
 
 
 CHATGPT_URL = "https://chatgpt.com/backend-api"
@@ -58,10 +61,12 @@ def preflight(cli: str, env: dict, cwd: Path, profile: dict, transport: dict) ->
     return None
 
 
-def cli_args(cli: str, cwd: Path, store: Evidence, request: dict, workspace: Workspace, profile: dict) -> list[str]:
+def cli_args(cli: str, cwd: Path, store: Evidence, request: dict, workspace: Workspace | Binding, profile: dict) -> list[str]:
     mcp_args = [
         "-m", "factory.codex_bridge", str(store.root), request["run_id"], workspace.name, request["base_sha"],
     ]
+    if isinstance(workspace, Binding):
+        mcp_args.append(workspace.rollout)
     source = str(Path(__file__).resolve().parents[1])
     settings = {
         "model_reasoning_effort": profile["reasoning_effort"],
@@ -115,6 +120,12 @@ def prompt(store: Evidence, request: dict, profile: dict) -> bytes:
     ]
     recorded = [phase for phase in ("investigation", "red", "green", "refactor")
                 if store.read(request["run_id"], phase) is not None]
+    proof = ()
+    if request.get("workspace_marker"):
+        proof = (f"Before editing, use the workspace shell to write the literal string {request['run_id']} "
+                 "to .git/factory-marker and read it back. This is a delivery isolation check.",)
+    if request.get("evaluation"):
+        proof += ("The trusted bridge publishes the bundle to /output after the submission milestone.",)
     return "\n\n".join((
         profile["profile"]["instructions"],
         request["outcome"],
@@ -124,17 +135,26 @@ def prompt(store: Evidence, request: dict, profile: dict) -> bytes:
         "At red provide the test argv. The runner uses exactly that test for green and submission. "
         "The final response should report the submitted SHA. Do not push, request release or edit grading.",
         f"Resuming from recorded phases: {recorded}.",
-        *skills,
+        *proof, *skills,
     )).encode()
 
 
-def dispatch(store: Evidence, request: dict, ticket: dict, cli: str, auth_home: Path, proxy: Proxy | None = None) -> dict:
+def dispatch(
+    store: Evidence, request: dict, ticket: dict, cli: str, auth_home: Path, proxy: Proxy | None = None,
+    *, binding: Binding | None = None, sentinel: Path | None = None,
+) -> dict:
     run_id, attempt = request["run_id"], ticket["attempt"]
     key = f"attempt-{attempt}"
-    with store.lock("codex-runner"):
+    if bool(request.get("evaluation")) != (binding is not None):
+        raise Conflict("evaluation requires its admitted workspace binding")
+    if binding is not None and (binding.name != run_id or binding.root != store.root
+                                or request.get("evaluation", {}).get("rollout") != binding.rollout):
+        raise Conflict("workspace binding differs from the admitted rollout")
+    with store.lock(run_id if binding is not None else "codex-runner"):
         if (result := store.read(run_id, key)) is not None:
             return result
-        marker = store.root / "active-codex-run.json"
+        marker_root = store.run_dir(run_id) if binding is not None else store.root
+        marker = marker_root / "active-codex-run.json"
         reference = request["configuration"]
         result = {"attempt": attempt, "configuration": reference, "billing": None, "usage": None}
         try:
@@ -172,7 +192,7 @@ def dispatch(store: Evidence, request: dict, ticket: dict, cli: str, auth_home: 
                     snapshot_ref = milestone["checkpoint"]
                     break
             snapshot = json.loads(store.read_blob(snapshot_ref))
-            workspace = Workspace(f"factory-codex-{run_id}-{attempt}")
+            workspace = binding if binding is not None else Workspace(f"factory-codex-{run_id}-{attempt}")
             events = store.run_dir(run_id) / f"{key}.jsonl"
             intent = {"attempt": attempt, "workspace": workspace.name, "checkpoint": snapshot_ref,
                       "configuration": reference, "deadline_epoch": request["deadline_epoch"],
@@ -185,12 +205,14 @@ def dispatch(store: Evidence, request: dict, ticket: dict, cli: str, auth_home: 
                 stream.write(encode({"run_id": run_id, **intent}))
                 stream.flush()
                 os.fsync(stream.fileno())
-            with workspace.provision(request["workspace_image"], snapshot):
+            scope = nullcontext() if binding is not None else workspace.provision(request["workspace_image"], snapshot)
+            sentinel_check = f"test ! -e {quote(str(sentinel))} && " if sentinel else ""
+            with scope:
                 probe = workspace.run([
                     "sh", "-ec", 'test "$PWD" = /work/product && test -d .git && '
                     'test ! -e /var/run/docker.sock && test ! -e /evidence && test ! -e /grading && '
                     'test ! -e "$HOME/.codex/auth.json" && test -z "${OPENAI_API_KEY-}${GH_TOKEN-}" && '
-                    'test ! -e /Users && printf %s "$PWD"',
+                    'test ! -e /Users && ' + sentinel_check + 'printf %s "$PWD"',
                 ])
                 if probe["exit_code"]:
                     raise Conflict("workspace isolation probe failed")
@@ -198,7 +220,15 @@ def dispatch(store: Evidence, request: dict, ticket: dict, cli: str, auth_home: 
                 result.update(run_cli(
                     cli_args(cli, cwd, store, request, workspace, profile),
                     cwd, env, text, events, request["deadline_epoch"],
+                    **({"cancelled": lambda: not binding.active()} if binding is not None else {}),
                 ))
+                if result["reason"] == "completed" and request.get("workspace_marker"):
+                    marker_probe = workspace.run(["cat", ".git/factory-marker"])
+                    marker_found = (not marker_probe["exit_code"] and not marker_probe["truncated"]
+                                    and marker_probe["output"].strip() == run_id)
+                    store.record(run_id, f"{key}-marker", {"assigned_workspace": marker_found, "marker": run_id})
+                    if not marker_found:
+                        result["reason"] = "workspace_marker_missing"
             result["native_events"] = store.blob(events.read_bytes())
             if result["reason"] == "completed" and store.read(run_id, "submission") is None:
                 result["reason"] = "missing_submission"
