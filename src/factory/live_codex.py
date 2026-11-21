@@ -11,6 +11,7 @@ from factory.agent_profile import resolve
 from factory.checkpoint import decode
 from factory.codex_delivery import dispatch
 from factory.codex_workspace import seed
+from factory.codex_transport import Proxy
 from factory.evidence import Conflict, Evidence, digest, encode, validate_run_id
 
 
@@ -46,6 +47,7 @@ def grade(store, request, grader, fixture_root, fixture_run):
     submission = store.read(run_id, "submission")
     snapshot = json.loads(store.read_blob(submission["checkpoint"]))
     if (submission["head_sha"] != snapshot["head_sha"] or snapshot["base_sha"] != request["base_sha"]
+            or any(snapshot[name] for name in ("index_patch", "working_patch", "untracked"))
             or digest(grader) != request["grader_digest"]):
         raise Conflict("submission or grader changed")
     namespace = {}
@@ -69,10 +71,15 @@ def main(args):
     grader = args.grader.read_bytes()
     if digest(grader) != args.grader_sha:
         raise Conflict("grader did not match its approved digest")
+    proxy_args = (args.proxy_url, args.proxy_key_file, args.proxy_ca)
+    if any(proxy_args) and not all(proxy_args):
+        raise ValueError("provide the proxy URL, private key file and CA together")
+    proxy = Proxy(*proxy_args) if all(proxy_args) else None
+    transport = proxy.pin(store) if proxy else {"kind": "direct", "auth_mode": "chatgpt"}
     admission = {
         "schema_version": 1, "run_id": run_id, "approved_by": args.approved_by, "outcome": OUTCOME,
         "target": "ufJmacca/factory-v2", "base_sha": args.base, "factory_sha": args.factory_sha,
-        "grader_digest": args.grader_sha, "fixture_run": args.fixture_run, "cap_minutes": args.minutes, "cap_attempts": args.attempts,
+        "grader_digest": args.grader_sha, "fixture_run": args.fixture_run, "cap_minutes": args.minutes, "cap_attempts": args.attempts, "transport": transport,
     }
     with store.lock(run_id):
         store.record(run_id, "approval", admission)
@@ -109,10 +116,22 @@ def main(args):
                 for attempt in range(1, request["max_attempts"] + 1):
                     key = f"attempt-{attempt}"
                     if (ticket := store.read(run_id, f"dispatch-{key}")) and store.read(run_id, key) is None:
-                        result = dispatch(store, request, ticket, args.codex, args.auth_home)
+                        try:
+                            result = dispatch(store, request, ticket, args.codex, args.auth_home, proxy)
+                        except (OSError, ValueError, subprocess.SubprocessError) as error:
+                            result = store.record(run_id, key, {
+                                "attempt": attempt, "configuration": request["configuration"],
+                                "reason": "runner_infrastructure_failed", "error_type": type(error).__name__,
+                                "usage": None, "billing": None,
+                            })
                         print(f"Attempt {attempt} {result['reason']}", flush=True)
                 if store.read(run_id, "dispatch-verify") and store.read(run_id, "verify") is None:
-                    grade(store, request, grader, args.fixture.resolve(), args.fixture_run)
+                    try:
+                        grade(store, request, grader, args.fixture.resolve(), args.fixture_run)
+                    except (OSError, ValueError, subprocess.SubprocessError) as error:
+                        store.record(run_id, "verify", {
+                            "reason": "verifier_infrastructure_failed", "error_type": type(error).__name__,
+                        })
             sleep(0.25)
         raise TimeoutError("Temporal did not publish a terminal manifest")
     finally:
@@ -134,5 +153,8 @@ if __name__ == "__main__":
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument("--fixture-run", required=True)
     parser.add_argument("--codex", default="codex")
+    parser.add_argument("--proxy-url")
+    parser.add_argument("--proxy-key-file", type=Path)
+    parser.add_argument("--proxy-ca", type=Path)
     parser.add_argument("--auth-home", type=Path, default=Path.home() / ".codex")
     main(parser.parse_args())

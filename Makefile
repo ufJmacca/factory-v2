@@ -10,3 +10,8 @@ verify-fixtures:
 
 verify-recovery:
 	./scripts/verify-recovery.sh
+
+.PHONY: verify-codex
+
+verify-codex:
+	./scripts/verify-codex.sh

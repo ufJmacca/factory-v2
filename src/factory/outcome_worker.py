@@ -14,7 +14,7 @@ from temporalio.worker import Worker
 from factory.checkpoint import decode
 from factory.delivery import OUTCOME_QUEUE, OutcomeDelivery
 from factory.delivery_steps import require
-from factory.evidence import Evidence, digest, encode, timestamp
+from factory.evidence import Conflict, Evidence, digest, encode, timestamp
 
 
 def action_key(ticket):
@@ -27,10 +27,11 @@ def reopen(store, run_id):
     request = store.read(run_id, "request")
     require(digest(encode(request)) == manifest["request_digest"], "request digest differs")
     artifacts = {name: store.read_blob(ref) for name, ref in manifest["artifacts"].items()}
-    profile = json.loads(artifacts["configuration"])
-    store.read_blob(profile["source_digest"])
-    for reference in profile["skills"].values():
-        store.read_blob(reference)
+    if manifest["reason"] != "pinned_configuration_unavailable":
+        profile = json.loads(artifacts["configuration"])
+        store.read_blob(profile["source_digest"])
+        for reference in profile["skills"].values():
+            store.read_blob(reference)
     if manifest["status"] == "verified":
         red, green, submission, verdict = (
             json.loads(artifacts[name]) for name in ("red", "green", "submission", "independent_verdict")
@@ -77,8 +78,9 @@ class OutcomeActivities:
             "configuration": request["configuration"], "base_checkpoint": request["base_checkpoint"],
             "grader": request["grader_digest"],
         }
-        for name in ("investigation", "red", "green", "refactor", "submission",
-                     *[f"attempt-{n}" for n in range(1, request["max_attempts"] + 1)]):
+        attempts = [f"attempt-{n}{suffix}" for n in range(1, request["max_attempts"] + 1)
+                    for suffix in ("", "-intent", "-workspace")]
+        for name in ("investigation", "red", "green", "refactor", "submission", *attempts):
             if (record := self.store.read(run_id, name)) is not None:
                 artifacts[name] = self.store.blob(encode(record))
                 for field in ("test", "checkpoint", "native_events"):
@@ -86,15 +88,24 @@ class OutcomeActivities:
                         artifacts[f"{name}_{'events' if field == 'native_events' else field}"] = record[field]
         verified = execution["reason"] == "accepted"
         verdict = self.store.read(run_id, "verify")
-        if verdict:
+        if verdict and "verdict" in verdict:
             artifacts.update(independent_verdict=verdict["verdict"], submitted_bundle=verdict["bundle"])
+        missing = {}
+        if execution["reason"] == "pinned_configuration_unavailable":
+            for name, ref in list(artifacts.items()):
+                try:
+                    self.store.read_blob(ref)
+                except (FileNotFoundError, Conflict):
+                    missing[name] = artifacts.pop(name)
         submission = self.store.read(run_id, "submission")
         manifest = {
             **execution, "schema_version": 1, "run_id": run_id, "producer": "deliver-outcome",
             "request_digest": digest(encode(request)), "artifacts": artifacts, "completed_at": timestamp(),
-            "status": "verified" if verified else "incomplete",
+            "status": "verified" if verified else "incomplete", "missing_artifacts": missing,
             "submitted_sha": submission["head_sha"] if submission else None,
         }
+        if request.get("transport", {}).get("kind") == "cli-proxy":
+            artifacts["proxy_ca"] = request["transport"]["ca_digest"]
         self.store.record(run_id, "manifest", manifest)
         return reopen(self.store, run_id)
 
