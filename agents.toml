@@ -1,0 +1,14 @@
+[factory]
+schema_version = 1
+
+[factory.bots.delivery-engineer]
+on_event = "outcome.approved"
+workflow = "deliver-outcome"
+runtime_profile = "codex-cli-chatgpt"
+model = "gpt-6.2-sol"
+reasoning_effort = "medium"
+instructions = "Investigate the approved outcome. Record the failing behavioral test on the base, make the same test pass, and record the refactor decision. Submit the exact Git commit for independent verification."
+skills = [".agents/skills/how", ".agents/skills/tdd", ".agents/skills/delivery-evidence"]
+tools = ["workspace.read", "workspace.edit", "workspace.test", "submission.create"]
+timeout_minutes = 30
+max_attempts = 2
