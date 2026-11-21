@@ -2,7 +2,7 @@
 
 The first demonstration should answer two questions. Can the factory deliver a real change that an independent reviewer can verify after a worker fails? Can it then use evidence from that delivery to propose a correction and support a decision about using it again?
 
-Keep Pstack and your changes to it in a Git repository you own. The factory pins the skills it uses and selects them for each bot in `agents.toml`. For the pilot, a Temporal delivery worker runs the Pstack-guided Codex CLI through the operator’s existing ChatGPT subscription. Harbor starts fresh instances of this same workflow for evaluation.
+Keep Pstack, custom skills and their helpers in this factory repository under `.agents/`. Each bot selects skills in `agents.toml`. Each run records the factory commit and the exact skill files it used. For the pilot, a Temporal delivery worker runs the Pstack-guided Codex CLI through the operator’s existing ChatGPT subscription. Harbor starts fresh instances of this same workflow for evaluation.
 
 Build the verifier first. Put one submission through Temporal, then replace the scripted contributor with one engineering agent. Carry the resulting product change through review. Only then use Harbor to compare two versions of the factory on fresh work. A reviewer can conclude **hold** or **reject** and the demonstration still succeeds. A claim that the factory improved needs stronger evidence.
 
@@ -12,9 +12,9 @@ Build the verifier first. Put one submission through Temporal, then replace the 
 |---|---|---|---|
 | 01 | Verify one immutable code submission in a clean container | Initial trunk | Devcontainer, Compose, verifier, acceptance fixture |
 | 02 | Recover that delivery after losing a worker and its checkout | 01 | Delivery workflow, workspace checkpoints, evidence archive |
-| 03 | Deliver a real change with the signed-in Codex CLI | 02 | `agents.toml`, profile reader, skill dependency lock, trusted CLI runner |
+| 03 | Deliver a real change with the signed-in Codex CLI | 02 | `agents.toml`, profile reader, skill manifest, trusted CLI runner |
 | 04 | Take that change through PR, CI, review and observation | 03 | Delivery policy, external action records, GitHub connector, feedback |
-| 05 | Diagnose a weakness and propose one testable correction | 04 | Proposal generator, skill source diff and candidate lock |
+| 05 | Diagnose a weakness and propose one testable correction | 04 | Proposal generator, skill diff and candidate manifest |
 | 06 | Turn the real outcome into a Harbor task with a calibrated verifier | 04 | Benchmark tasks, protected grading fixtures, Harbor service profile |
 | 07 | Run the same Temporal workflow and Codex profile in a Harbor trial | 06 | FactoryAgent, trial tool bindings, grade and cancellation receipts |
 | 08 | Run a controlled comparison and record a reviewable decision | 05, 07 | Experiment workflow, comparison policy, decision record |
@@ -24,11 +24,11 @@ PRs 05 and 06 can branch independently from trunk after 04 lands. PR 07 can proc
 
 ## What the sources establish
 
-On 19 November 2026 the workspace contained Pstack skills, a license, and guides under `.agents/`. It had no Git metadata, product code, devcontainer, or Compose file. The pinned Harbor and Agent Harness research trees were present and clean. I checked the two Pstack revisions through GitHub. These are **candidate pins verified against source**. Installing them together and driving the integration are future exit tests.
+On 19 November 2026 the workspace contained Pstack skills, a license, and guides under `.agents/`. At the time it had no Git metadata, product code, devcontainer, or Compose file. The factory repository now tracks the `.agents/` tree in its first commit, `44c77e6`. The pinned Harbor and Agent Harness research trees were present and clean. I checked the two Pstack revisions through GitHub. These are **candidate pins verified against source**. Installing them together and driving the integration are future exit tests.
 
 | Component | Available at the reviewed revision | Decision |
 |---|---|---|
-| Pstack | Cursor and the portable mirror both declare 0.15.36. Their router Git blob IDs start with `2dd5e76` and `53ecd50`. The workspace router hashes to `057af2d`. The mirror carries deliberate portability edits. | Seed the operator-owned Pstack repo from portable mirror commit `f104aa8f821a3f7397318b0dc8ad2f7e4a1f8bc7`. Compare the workspace copy and commit intended local differences there. Retain the license, upstream notices and mirror sync history. Record Cursor `6b0300214a09fd6029cfb7077043125758cd1fd2` as the inspected upstream reference. Pin the resulting owned commit for the pilot. [Cursor upstream][cursor] · [Portable mirror and sync rules][mirror] |
+| Pstack | Cursor and the portable mirror both declare 0.15.36. Their router Git blob IDs start with `2dd5e76` and `53ecd50`. The workspace router hashes to `057af2d`. The mirror carries deliberate portability edits. | Use the committed `.agents/` tree as the pilot source. Compare it with reviewed mirror commit `f104aa8f821a3f7397318b0dc8ad2f7e4a1f8bc7` and document local differences. Keep upstream notices and license with the files. Record Cursor `6b0300214a09fd6029cfb7077043125758cd1fd2` as the inspected upstream reference. [Cursor upstream][cursor] · [Portable mirror and sync rules][mirror] |
 | Temporal | Deterministic workflow replay reconstructs recorded decisions and activity results. An activity can run again after its external effect succeeded. | Own lifecycle, approval checks, timers, reservations and recovery in workflow code. Perform I/O in activities. Use a new run and workspace for every independent observation of agent performance. [Workflow execution][temporal-wf] · [Activity semantics][temporal-act] |
 | Codex CLI | The host reports `codex-cli 0.162.1` and `Logged in using ChatGPT`. `codex exec --json` supports unattended execution and emits JSONL events. | Pin the tested CLI build for the pilot. Use the operator’s subscription on a trusted runner, reserve capacity for delivery, and wait on exhausted quota. [Noninteractive CLI][codex-exec] · [Account authentication for trusted runners][codex-auth] |
 | Temporal Agent Harness | The reviewed Python package 0.11.0 provides typed agent turns, tool approvals and streams. Its `agents.toml` registry describes launchable agents and ignores unknown keys. | Keep `harness-openai-api` as a later, separately authorized runtime experiment. It can use the native registry and typed startup data. The pilot needs Temporal and the Codex runner but no Harness session or direct API key. [Registry loader][registry] · [Harness][harness] · [Python lock][sdk-lock] |
@@ -38,7 +38,7 @@ The delivery and improvement distinction comes from Pstack and the operator's cl
 
 ## One bot configuration
 
-`agents.toml` in the repository root is the only file operators edit to define bots. This proposed pilot profile is read by the factory. Resolve its named skill references against the factory’s `config/skills.lock`, bind only the named tools allowed by delivery policy, and reject unknown fields, runtime names and unsupported permissions before dispatch.
+`agents.toml` in the repository root is the only file operators edit to define bots. This proposed pilot profile is read by the factory. Resolve its skill paths from the factory commit selected for the run, bind only the named tools allowed by delivery policy, and reject unknown fields, runtime names and unsupported permissions before dispatch.
 
 ```toml
 [factory]
@@ -49,13 +49,13 @@ on_event = "outcome.approved"
 workflow = "deliver-outcome"
 runtime_profile = "codex-cli-chatgpt"
 instructions = "Write a failing behavioral test. Submit the exact commit and its test evidence."
-skills = ["pstack/how", "pstack/tdd"]
+skills = [".agents/skills/how", ".agents/skills/tdd"]
 tools = ["workspace.read", "workspace.edit", "workspace.test", "submission.create"]
 timeout_minutes = 30
 max_attempts = 2
 ```
 
-If the optional Harness runtime is enabled later, add native `[[agents]]` registrations in this same file for workflow type, queue and startup schema. The factory owns `[factory.bots.*]`, including triggers, instructions, skills, tools, runtime and limits. Referenced skill files contain the methods. Dependency locks and generated run manifests capture resolved versions. Keep account credentials in the trusted runner’s credential store. [Native registry format][registry]
+If the optional Harness runtime is enabled later, add native `[[agents]]` registrations in this same file for workflow type, queue and startup schema. The factory owns `[factory.bots.*]`, including triggers, instructions, skills, tools, runtime and limits. Referenced skill files contain the methods. The run manifest records their resolved paths and digests. Keep account credentials in the trusted runner’s credential store. [Native registry format][registry]
 
 **At run start**, resolve the selected bot once. Archive its digest and source revision, CLI build, selected model and reasoning settings, exact skill digests and effective tool permissions. Record the execution environment and worker build separately. Reuse this snapshot after an interruption. A reviewed profile change applies to new runs.
 
@@ -63,18 +63,18 @@ If the optional Harness runtime is enabled later, add native `[[agents]]` regist
 
 | What changes | Where the reviewed change lives | How a bot receives it |
 |---|---|---|
-| A Pstack skill, playbook or shared helper | Your Pstack Git repo. Bring later mirror updates in as reviewable changes with their upstream revision. | The factory updates the `pstack` source pin in `config/skills.lock`. |
-| A new skill you author | The same repo under a distinct name such as `team/release-check`, or a product repo if its maintainers own the procedure. | Add its source and path to the lock. Select it by name in `agents.toml` for the bots that need it. |
-| A skill maintained elsewhere | Pin the maintainer's published commit. Carry a local change in an owned fork, or propose it upstream and pin the accepted revision. | The lock identifies the chosen source. Its qualified skill name can stay the same across a fork. |
+| A Pstack skill, playbook or shared helper | Edit the tracked files under `.agents/` in a factory PR. For an upstream update, record the source revision and review the diff against local edits. | The next eligible run uses the files from the activated factory revision. |
+| A new factory skill | Add a directory such as `.agents/skills/release-check/` with its `SKILL.md` and helpers. | Select the directory in `agents.toml` for the bots that need it. Review and activate that change together. |
+| A third-party skill used by the factory | Import its files, license and source revision under `.agents/`. Bring updates in through a factory PR. | Select the checked-in directory in `agents.toml` just like an authored skill. |
 | A bot selects the wrong skill | The factory's `agents.toml`. | Evaluate the selection change with skill contents pinned. A loader defect belongs in the factory code. |
 
-The lock maps each qualified skill ID to its repository, full Git commit, path and digest of the files it uses, including referenced playbooks and helpers. Resolve only the selected versions into the run workspace. Treat the existing `.agents/` tree as an import input. Verify that a stale local installation cannot shadow a locked skill. A run records the effective digests so a change to a helper shared by several skills is visible.
+Git versions the skill source alongside the bot configuration. From the selected factory commit, the runner builds a read-only bundle of the selected skills and their referenced playbooks and helpers. It records the commit, relative paths and content digests in a generated run manifest. Use that bundle for retries and scope skill discovery to it so a host installation or product checkout cannot shadow the selected files.
 
 ## Ownership and authority
 
 **Inner loop.** The factory accepts a versioned outcome and resolves its configuration once. The agent investigates, designs, writes a failing test, implements, and refactors. A separate verifier checks the exact submitted revision. Temporal reconciles the PR, CI and review against that revision, waits for the required authority, then records merge, deployment and observed results where applicable. A passing test grants no external permission.
 
-**Outer loop, or autoloop.** Read closed and interrupted runs, score them, group failures, and propose a specific diff and a falsifiable prediction. The factory may generate proposals and schedule experiments within a pre-authorized evaluation budget. The candidate is a disposable evaluation input. The skill maintainer reviews the source change. Factory reviewers separately decide whether to adopt that revision and activate it for eligible runs. Product maintainers approve product actions. Factory reviewers approve configuration changes and promotions.
+**Outer loop, or autoloop.** Read closed and interrupted runs, score them, group failures, and propose a specific diff and a falsifiable prediction. The factory may generate proposals and schedule experiments within a pre-authorized evaluation budget. The candidate is a disposable evaluation input. A factory PR carries the skill change and its evaluation evidence. A reviewer can merge it before separately authorizing activation for eligible runs. Product maintainers approve product actions.
 
 **Pstack supplies methods.** Use `how` and `why` for investigation, `architect` for design, and `arena` when a choice warrants competing implementations. `create-verification-skill` describes how to launch, diagnose, drive, collect evidence and clean up. Require reviewers using `interrogate` to reproduce findings. `show-me-your-work` can contribute decision records. Instrument tool calls and lifecycle events separately. `reflect` consumes the current transcript and waits for approval to edit. Supply archived runs through a read-only adapter. Prefer `correct`'s order of architecture, types, executable checks, behavioral tests and then documentation. Use the eval and hillclimb methods to freeze criteria and change one variable. Put the operator's stricter TDD rule in the effective configuration and verify the red and green commands in the trace. [Verification method](.agents/skills/create-verification-skill/SKILL.md) · [Reflection](.agents/skills/reflect/SKILL.md) · [Correction](.agents/skills/correct/SKILL.md) · [Evaluation](.agents/skills/poteto-mode/playbooks/eval.md)
 
@@ -86,16 +86,16 @@ For the first comparison, vary one proposed skill change or one tool mapping. Ch
 
 ## Repository and containers
 
-Create paths as their PRs land. Treat this as a proposed layout.
+The `.agents/` tree is already tracked. Add the remaining paths as their PRs land.
 
 ```text
+.agents/skills/                                           # tracked skills, playbooks and helpers
 .devcontainer/devcontainer.json   compose.yaml            # same workspace service
 agents.toml                                               # bot profiles and optional Harness registry
 pyproject.toml                    uv.lock                 # factory dependencies
 src/factory/
   verify.py       delivery.py     workspace.py     evidence.py
   agent.py        github.py       proposals.py     experiments.py     promotion.py
-config/skills.lock                # skill source repos, commits, paths and content digests
 config/                           # factory policy
 evaluation/harbor/                # separate image, lock and FactoryAgent
 benchmarks/                       # public task inputs and fixture definitions
@@ -114,9 +114,9 @@ Use versioned JSON documents and content-addressed files at first. Pass IDs and 
 | Record | Minimum contents | Invariant |
 |---|---|---|
 | Outcome | Target repo and base commit, requested change, observable acceptance and regression checks, required artifacts, task class/difficulty, allowed operations, budget, owner and observation window | Amendments create a new version. Freeze acceptance before the agent sees the task. |
-| Factory configuration | `agents.toml` revision, bot ID, resolved profile digest, runtime/auth mode, CLI build, selected model/settings, tool permissions, skill and image digests, verifier, policy and budget | Pin the immutable manifest at run start. Store credential references only. Record any model alias whose underlying version cannot be pinned. |
+| Factory configuration | Factory commit, `agents.toml` path, bot ID, resolved profile digest, runtime/auth mode, CLI build, selected model/settings, tool permissions, skill and image digests, verifier, policy and budget | Pin the immutable manifest at run start. Store credential references only. Record any model alias whose underlying version cannot be pinned. |
 | Run and attempts | Outcome/config refs, workflow ID and execution IDs, worker build, mode, attempts, stage and terminal cause, workspace checkpoint, submission SHA, evidence manifest, external action receipts, approvals, usage and feedback | A retry retains the logical run ID and creates an attempt record. An interruption remains visible after recovery. An independent trial gets a new run. |
-| Proposal | Source run IDs and evidence offsets, cause or uncertainty, competing explanation, target repo and skill ID or bot selector, base and candidate revisions, one proposed diff, predicted metric and risk, target class, frozen baseline, author and review state | The proposer cannot change the grader or activate its candidate. Every diagnosis points to an observation. |
+| Proposal | Source run IDs and evidence offsets, cause or uncertainty, competing explanation, factory skill path or bot selector for a skill proposal, base and candidate revisions, one proposed diff, predicted metric and risk, target class, frozen baseline, author and review state | The proposer cannot change the grader or activate its candidate. Every diagnosis points to an observation. |
 | Experiment | Proposal and both config digests, task split and start images, grader digest, assigned pairs/repeats, budget and stopping policy, decision thresholds, Harbor job and rollout IDs, all results and costs | Register the comparison before submission. Count every assigned trial. Keep retries linked to their original assignment. |
 | Promotion | Candidate and prior active digest, experiment and decision-report digest, accept/hold/reject and reasons, reviewer, authorized scope, activation time, observation limits and rollback target | Approval records intent. Activation checks the expected prior digest and applies only to future eligible runs. Rollback is a new audited change. |
 
@@ -141,9 +141,9 @@ Use versioned JSON documents and content-addressed files at first. Pass IDs and 
 
 **Diagnose before editing.** Record which skill was required, present, resolved, included in the model context, and followed by an observable action. Classify a missing skill, a load failure, a loaded instruction that was skipped, or an incorrect instruction separately. Preserve tool or environment errors and ambiguous outcome specifications as other possible causes. A file read alone cannot establish why an agent acted. Compare with a successful run or small reproduction. Retain `unknown` if the evidence cannot separate explanations.
 
-**Test the skill where it runs.** For a delivery skill such as `pstack/tdd`, start fresh paired Harbor trials through `FactoryAgent` and the same Temporal delivery workflow. Give one arm the active lock and the other a candidate lock. Keep the bot selection, Codex runtime, tasks, budgets and grader fixed. If changing a shared helper affects another selected skill, include a regression case that exercises that skill.
+**Test the skill where it runs.** For a delivery skill such as `tdd`, start fresh paired Harbor trials through `FactoryAgent` and the same Temporal delivery workflow. Give one arm the skill bundle from the active factory commit and the other the bundle from the proposed commit. Use the same trusted worker build in both arms. Keep the bot selection, Codex runtime, tasks, budgets and grader fixed. If changing a shared helper affects another selected skill, include a regression case that exercises that skill.
 
-For an outer-loop skill such as `pstack/reflect`, run both versions of the proposal step against the same archived traces, including successes and ambiguous failures. Hide human labels and later corrections from both arms. An independent reviewer scores whether the diagnosis cites the right evidence, the proposed fix targets the cause and the skill abstains when evidence is insufficient. When a proposal claims better delivery, test that proposed fix separately on fresh held-out Harbor tasks. Keep the scoring criteria and promotion authority outside the candidate's control.
+For an outer-loop skill such as `reflect`, run both versions of the proposal step against the same archived traces, including successes and ambiguous failures. Hide human labels and later corrections from both arms. An independent reviewer scores whether the diagnosis cites the right evidence, the proposed fix targets the cause and the skill abstains when evidence is insufficient. When a proposal claims better delivery, test that proposed fix separately on fresh held-out Harbor tasks. Keep the scoring criteria and promotion authority outside the candidate's control.
 
 **Freeze the task and the judge.** Start with the original contract and pre-solution repository. Pin environment, service fixtures, acceptance and regression checks, output contract, task class, difficulty and provenance. Exclude the solution, future history, corrections and hidden grading material from the agent's inputs. A known solution must pass, the unchanged base must fail the intended check, and a deliberately defective submission must fail a regression. Freeze the grader before either arm runs. Put related tasks in the same split to prevent leakage. Grader changes get independent review and a new version. Regrading historical outputs tests a verifier change. A change to skills, model, tools or workflow requires new trials. [Harbor task example][separate] · [Regrade semantics][regrade]
 
@@ -159,7 +159,7 @@ Each box is future implementation work. For each PR, capture the trunk fixture r
 
 ### PR 01. Verify one submitted revision
 
-- [ ] Bootstrap Git and a review target when implementation is authorized. Add the Compose `workspace` and devcontainer **before** installing dependencies or running project tooling. Limit the PR to those definitions, a minimal pinned Python/`uv` project, one verifier entry point, one controlled Git fixture, tests and a container-aware invocation. Preserve the existing skills.
+- [ ] Use the existing factory Git repository and GitHub review target. Add the Compose `workspace` and devcontainer **before** installing dependencies or running project tooling. Limit the PR to those definitions, a minimal pinned Python/`uv` project, one verifier entry point, one controlled Git fixture, tests and a container-aware invocation. Preserve the existing skills.
 - [ ] Use a tiny CLI fixture that counts nonempty records, including the last record without a trailing newline. Supply a known base, a correct commit and a defective commit that breaks empty input. The trusted verifier receives the base, expected head, Git bundle and pinned checks. It reconstructs the commit in a fresh checkout, invokes the actual CLI, and emits a machine-readable verdict, checked SHA, check digest and output hashes.
 - [ ] Commit a failing behavioral test that exposes the missing verification behavior. Make the correct revision pass and the base and mutant fail their respective checks. Refactor with the same container entry point green. Wrong-head and corrupted-bundle cases must fail before acceptance.
 - [ ] On a clean checkout, run the proposed `make verify-fixtures` target. It should invoke Compose, check the three submissions separately, and print one acceptance and two rejections with their reasons. Discard the checkouts and independently reopen the retained evidence. Record elapsed time as a baseline. The fixture run uses zero model calls and makes zero writes to external services.
@@ -172,8 +172,8 @@ Each box is future implementation work. For each PR, capture the trunk fixture r
 
 ### PR 03. Run the first bot through the subscription-backed Codex CLI
 
-- [ ] Build on 02. Add the root `agents.toml`, validate the bot profile, resolve its Pstack methods from the operator-owned commit in `config/skills.lock` and launch `codex exec --json` on one trusted runner signed in with ChatGPT. Record the resolved digest, auth mode, CLI build, native events, checkpoint and submitted commit. Keep release approvals in the parent delivery workflow.
-- [ ] Import reviewed local Pstack changes into the owned repo and record its upstream base. Resolve a Pstack skill and a second source with the same short skill name in a fixture. Verify the selected file and helper digests. Change a checkout or move a branch and confirm a pinned run loads the same bytes or fails before dispatch.
+- [ ] Build on 02. Add the root `agents.toml`, validate the bot profile, resolve its Pstack methods from `.agents/` at the selected factory commit and launch `codex exec --json` on one trusted runner signed in with ChatGPT. Record the resolved digest, auth mode, CLI build, native events, checkpoint and submitted commit. Keep release approvals in the parent delivery workflow.
+- [ ] Resolve a tracked Pstack skill and a custom skill in a fixture. Put a conflicting skill in the product checkout and verify the runner loads the selected factory files and helpers. Move the factory branch before retry and confirm the run still resolves its original bytes or fails before dispatch.
 - [ ] Test a misspelled TOML field, unknown runtime, disallowed tool, duplicate dispatch and interrupted CLI process. Simulate a quota limit and a lost login. Check that a queued run waits or ends explicitly, that its profile remains pinned, and that neither path starts a paid API call.
 - [ ] Select one maintainer-confirmed, bounded product outcome with an independent acceptance check. No target repo was supplied. A fallback is an operator-needed read-only command that retrieves a verified patch by run ID and detects corruption, accepted by a real user with the grader owned separately. The PR 01 counting fixture is only a durability and verifier control.
 - [ ] Archive the investigation, failing behavioral test on the base, passing test after the edit, refactor decision, and independent verification on the submitted SHA. Run with one engineer, one workspace at a time and the recorded outcome cap. Confirm missing billing stays unknown and an unavailable required skill stops the stage.
@@ -186,13 +186,13 @@ Each box is future implementation work. For each PR, capture the trunk fixture r
 
 ### PR 05. Propose one correction
 
-- [ ] Build on 04. Feed the archived run and corrections into a read-only outer-loop job. Generate one isolated candidate diff against the owning repo’s base commit. Link the affected skill or selector, evidence, predicted result and candidate lock or bot profile to the experiment request. Keep source merge and activation under separate review. Label a single observation as a hypothesis until reproduced. If this outcome exposes no supported weakness, retain it and collect another eligible outcome.
+- [ ] Build on 04. Feed the archived run and corrections into a read-only outer-loop job. Generate one isolated candidate diff against the active factory commit. Link the affected skill or selector, evidence, predicted result and candidate manifest to the experiment request. Keep source merge and activation under separate review. Label a single observation as a hypothesis until reproduced. If this outcome exposes no supported weakness, retain it and collect another eligible outcome.
 - [ ] Test missing, unloaded, skipped and incorrect skills against labeled traces, including a tool failure, an underspecified outcome and an ambiguous trace. Preserve successful comparison cases.
 - [ ] Have a reviewer trace one actual weakness to a run event, reproduce it and inspect the proposed correction and experiment. Ingest the same evidence twice and obtain one proposal for that finding, with zero changes to active configuration.
 
 ### PR 06. Establish the Harbor benchmark
 
-- [ ] Build independently on 04. Package the real pre-solution task and freeze its grader and outputs. Curate held-out tasks before candidate tuning and isolate grading files. Pin Harbor and its sandbox provider. Record task and injected skill digests from the lock. An optional built-in agent probe can test a skill or model in isolation. Only PR 07 exercises the factory workflow.
+- [ ] Build independently on 04. Package the real pre-solution task and freeze its grader and outputs. Curate held-out tasks before candidate tuning and isolate grading files. Pin Harbor and its sandbox provider. Record the task digest and the skill digests from the run manifest. An optional built-in agent probe can test a skill or model in isolation. Only PR 07 exercises the factory workflow.
 - [ ] Submit the known solution, unchanged base and a defective result through Harbor with `environment_mode = "separate"`. Only the known solution passes. These three calibration submissions use zero paid model calls. In a separate drill, omit the required output and confirm the factory records incomplete evidence. Budget the built-in model probe explicitly. [Skill provenance][skills]
 
 ### PR 07. Prove the external-agent bridge
@@ -202,13 +202,13 @@ Each box is future implementation work. For each PR, capture the trunk fixture r
 
 ### PR 08. Produce the promotion decision
 
-- [ ] Join 05 and 07. Automate submission and reconciliation of baseline and candidate through the proven bridge under a pre-approved experiment envelope. Freeze the plan before viewing outcomes. For a delivery skill test, compare the active lock with the proposed source commit and verify that only the declared skill files and their resulting digests differ. For a proposal skill test, compare diagnoses on the frozen trace set. Keep the CLI runtime, selected model/settings, budgets, tasks and verifier fixed. Treat any future CLI-versus-Harness/API comparison as a separate experiment. Compare historical and held-out results separately. Test with an invalid grade, missing cost, changed grader digest and zero accepted outcomes.
+- [ ] Join 05 and 07. Automate submission and reconciliation of baseline and candidate through the proven bridge under a pre-approved experiment envelope. Freeze the plan before viewing outcomes. For a delivery skill test, compare the active and proposed factory commits. Verify that the only changed inputs to the trial are the declared skill files and their resulting digests. For a proposal skill test, compare diagnoses on the frozen trace set. Keep the CLI runtime, selected model/settings, budgets, tasks and verifier fixed. Treat any future CLI-versus-Harness/API comparison as a separate experiment. Compare historical and held-out results separately. Test with an invalid grade, missing cost, changed grader digest and zero accepted outcomes.
 - [ ] Have a reviewer follow one real outcome through its evidence, diagnosis, candidate diff, fresh Harbor trials and an attributable promote/hold/reject decision with reasons and scope. Missing required data or an unresolved quality regression prevents promotion. Reconcile every assignment to a terminal result or an explicit reason it did not run. Account for every attempt and stop at the declared cap.
 
 ### PR 09. Activate and observe a reviewed change
 
 - [ ] Build on 08 only for an approved candidate. Review the factory change and separately authorize activation for a named class of future outcomes. Start with a limited cohort and a fixed observation window. Review reopens, rollbacks, human effort and cost against the registered limits. Record a rollback decision when a limit is crossed.
-- [ ] For a skill promotion, link the reviewed source PR to a factory lock-update PR and the Harbor or proposal-step evidence. Resolve the merged source and match its effective files to the tested candidate before adoption. Rerun affected trials if those bytes changed. Merging the skill PR alone leaves the active factory pin intact. Roll back by restoring the previous active manifest and lock.
+- [ ] For a skill promotion, attach the Harbor or proposal-step evidence to the factory PR. Before activation, resolve the merged commit and check that its effective inputs match the tested candidate, including the bot selection, skills, helpers and worker build. Rerun affected trials if those inputs changed. On approval, point eligible new runs at the reviewed manifest. To roll back, restore the prior active manifest.
 - [ ] Activate and reverse a controlled configuration. An in-flight run retains its original digest, the next eligible run takes the candidate, and a later run takes the restored baseline. Test an expired approval and competing promotions. Each authorized pointer transition changes one active digest exactly once.
 
 ## Failure drills and the decisions they settle
@@ -221,7 +221,7 @@ Each box is future implementation work. For each PR, capture the trunk fixture r
 | A sandbox or Harbor server disappears | Remove one trial container mid-edit. Separately stop the server mid-run. | Record failed/interrupted attempt and provider inventory. Retry in a fresh Harbor trial only after cleanup and budget reconciliation. Restore a production workspace only from a verified checkpoint. |
 | Grading or evidence looks successful despite missing data | Suppress bundle collection, corrupt a digest, omit the reward or cost, then try to promote. | Missing proof blocks acceptance. Missing cost blocks a cost claim. Preserve coverage and known spend in either case. |
 | Runtime or credential boundary mismatch | In delivery and a Harbor trial, issue the same workspace operation and compare the recorded runtime pins, where the operation ran and which files it could reach. Interrupt a CLI run, exhaust a test quota and lose a grade notification. | Require isolated tools, no readable account secret, no duplicate CLI process, no automatic API billing and one reconciled grade for the submitted commit. If isolation fails, keep full-factory trials blocked until the binding is corrected. |
-| Pstack instructions present but ineffective | Compare the files loaded by the runner with the lock for the operator-owned Pstack commit. Dispatch one outcome and inspect resolved bytes, tool calls, TDD order and the skill-read trace. | Accept the bundle only if the required actions occur. Record any required tool mapping in the reviewed factory configuration. |
+| Pstack instructions present but ineffective | Compare the files loaded by the runner with the skill paths and digests recorded for the selected factory commit. Dispatch one outcome and inspect resolved bytes, tool calls, TDD order and the skill-read trace. | Accept the bundle only if the required actions occur. Record any required tool mapping in the reviewed factory configuration. |
 | Apparent improvement disappears across tasks | Repeat baseline against itself first on the tuning set. Run the frozen paired design on held-out tasks under the agreed cap. | Estimate ordinary variation before interpreting the candidate. Hold when the quality margin or uncertainty rule is unmet. Never tune on promotion results and reuse them as fresh evidence. |
 
 The implementation inputs still needed are a real target outcome and reviewer, authorized effects, an available subscription allowance and a bounded infrastructure budget, and an appropriate observation window. None is needed to start PR 01. The integration that most threatens the demonstration is the lifetime of Harbor's environment handle across worker loss. PR 07 must prove that a dead handle cannot keep issuing tools or turn a partial submission into an accepted one.
