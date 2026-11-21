@@ -160,29 +160,29 @@ def run_check(checkout: Path, check: Check) -> CheckResult:
     return CheckResult(check.id, exit_code, passed, stdout_evidence, stderr_evidence)
 
 
-def verify(args: argparse.Namespace) -> Verdict:
-    verdict = Verdict(args.base, args.head)
+def verify(*, base: str, head: str, bundle: Path, check_file: Path, check_digest: str) -> Verdict:
+    verdict = Verdict(base, head)
     try:
         try:
-            content = args.checks.read_bytes()
+            content = check_file.read_bytes()
         except OSError as error:
             raise Rejected("invalid_checks") from error
         verdict.check_digest = sha256(content).hexdigest()
-        if verdict.check_digest != args.check_digest:
+        if verdict.check_digest != check_digest:
             raise Rejected("check_digest_mismatch")
         checks = load_checks(content)
 
-        if not all(re.fullmatch(r"[a-f0-9]{40}", sha) for sha in (args.base, args.head)):
+        if not all(re.fullmatch(r"[a-f0-9]{40}", sha) for sha in (base, head)):
             raise Rejected("invalid_sha")
         try:
-            with args.bundle.open("rb") as bundle:
-                verdict.bundle_sha256 = file_digest(bundle, "sha256").hexdigest()
+            with bundle.open("rb") as stream:
+                verdict.bundle_sha256 = file_digest(stream, "sha256").hexdigest()
         except OSError as error:
             raise Rejected("invalid_bundle") from error
 
         with tempfile.TemporaryDirectory(prefix="submission-") as directory:
             checkout = Path(directory)
-            verdict.checked_sha = reconstruct(checkout, args.bundle.resolve(), args.base, args.head)
+            verdict.checked_sha = reconstruct(checkout, bundle.resolve(), base, head)
             entrypoint = checkout / "records.py"
             if entrypoint.is_symlink() or not entrypoint.is_file():
                 raise Rejected("missing_entrypoint")
@@ -206,9 +206,9 @@ def main() -> int:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--bundle", type=Path, required=True)
-    parser.add_argument("--checks", type=Path, default=Path("/grading/checks.json"))
+    parser.add_argument("--checks", dest="check_file", type=Path, default=Path("/grading/checks.json"))
     parser.add_argument("--check-digest", required=True)
-    verdict = verify(parser.parse_args())
+    verdict = verify(**vars(parser.parse_args()))
     print(json.dumps(asdict(verdict), sort_keys=True))
     return int(verdict.decision != "accepted")
 

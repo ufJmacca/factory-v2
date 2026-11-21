@@ -44,4 +44,5 @@ def build_fixtures(destination: Path) -> dict[str, str]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build the three records submissions.")
     parser.add_argument("destination", type=Path)
-    build_fixtures(parser.parse_args().destination)
+    for name, head in build_fixtures(parser.parse_args().destination).items():
+        print(f"{name}\t{head}")
