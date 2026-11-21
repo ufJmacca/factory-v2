@@ -17,3 +17,23 @@ RUN install -d -m 0700 /grading
 COPY --chmod=0400 grading/checks.json /grading/checks.json
 COPY src/factory/verify.py /grading/verify.py
 ENTRYPOINT ["python", "-IB", "/grading/verify.py"]
+
+FROM workspace AS delivery-worker
+COPY pyproject.toml uv.lock /workspace/
+RUN uv sync --locked --no-dev --extra recovery
+ENV PATH=/opt/venv/bin:$PATH PYTHONPATH=/factory/src
+COPY src/factory/ /factory/src/factory/
+COPY grading/checks.json /grading/checks.json
+WORKDIR /factory
+
+FROM python-git AS recovery-service
+ENV PYTHONPATH=/factory/src:/factory PYTHONDONTWRITEBYTECODE=1
+COPY src/factory/ /factory/src/factory/
+COPY benchmarks/ /factory/benchmarks/
+WORKDIR /factory
+ENTRYPOINT ["python", "-m", "factory.recovery_services"]
+
+FROM verifier AS recovery-verifier
+ENV PYTHONPATH=/factory/src PYTHONDONTWRITEBYTECODE=1
+COPY src/factory/ /factory/src/factory/
+ENTRYPOINT ["python", "-m", "factory.recovery_services", "verifier"]
