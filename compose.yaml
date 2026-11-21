@@ -1,0 +1,27 @@
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: grading/Dockerfile
+      target: workspace
+    command: ["sleep", "infinity"]
+    volumes:
+      - .:/workspace
+    network_mode: none
+
+  verifier:
+    build:
+      context: .
+      dockerfile: grading/Dockerfile
+      target: verifier
+    init: true
+    network_mode: none
+    read_only: true
+    ipc: none
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=0755
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 192m
