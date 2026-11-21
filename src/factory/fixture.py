@@ -41,7 +41,7 @@ class Ledger:
         return receipt_for(operation_id, row[0]) if row else None
 
     def apply(self, operation_id: str, request_digest: str) -> dict:
-        if not re.fullmatch(r"records-delivery:[a-z0-9][a-z0-9-]{0,62}", operation_id):
+        if not re.fullmatch(r"(?:records-delivery|harbor-delivery):[a-z0-9][a-z0-9-]{0,62}", operation_id):
             raise ValueError("invalid operation ID")
         if not re.fullmatch(r"[0-9a-f]{64}", request_digest):
             raise ValueError("invalid request digest")

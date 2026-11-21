@@ -3,6 +3,7 @@ import json
 from factory.checkpoint import decode
 from factory.delivery_steps import require
 from factory.evidence import digest, encode
+from factory.harbor_receipt import reopen_harbor
 
 
 def reopen(store, run_id, record="manifest"):
@@ -36,5 +37,7 @@ def reopen(store, run_id, record="manifest"):
                 and verdict["decision"] == "accepted" and verdict["grader_digest"] == request["grader_digest"]
                 and artifacts["submitted_bundle"] == decode(snapshot["bundle"]), "independent verdict differs")
         require(any(name.endswith("_events") for name in artifacts), "native event stream missing")
+        if request.get("evaluation"):
+            reopen_harbor(store, request, manifest, artifacts)
     return manifest
 

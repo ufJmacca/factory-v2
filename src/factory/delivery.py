@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
@@ -23,11 +24,19 @@ class RecordsDelivery:
 
 
 OUTCOME_QUEUE = "codex-delivery"
+EVALUATION_QUEUE = "harbor-delivery"
 RECEIPT_DRAIN_SECONDS = 30
 
 
 @workflow.defn(name="deliver-outcome")
 class OutcomeDelivery:
+    def __init__(self):
+        self.grade_available = False
+
+    @workflow.signal
+    def harbor_grade_available(self):
+        self.grade_available = True
+
     @workflow.run
     async def run(self, request: dict) -> dict:
         context = {"workflow_id": workflow.info().workflow_id, "temporal_run_id": workflow.info().run_id}
@@ -41,24 +50,38 @@ class OutcomeDelivery:
             )
 
         async def wait_for(ticket):
-            if workflow.time() >= execution_deadline:
+            evaluation_grade = request.get("evaluation") if ticket["kind"] == "verify" else None
+            deadline = evaluation_grade["grade_deadline_epoch"] if evaluation_grade else receipt_deadline
+            if workflow.time() >= (deadline if evaluation_grade else execution_deadline):
                 return {"reason": "deadline_exceeded"}
             await exchange("queue_codex_action", ticket)
             while True:
                 if (result := await exchange("read_codex_result", ticket)) is not None:
                     return result
-                remaining = receipt_deadline - workflow.time()
+                remaining = deadline - workflow.time()
                 if remaining <= 0:
                     return {"reason": "receipt_timeout"}
-                await workflow.sleep(min(2, remaining))
+                if evaluation_grade:
+                    try:
+                        await workflow.wait_condition(lambda: self.grade_available, timeout=min(2, remaining))
+                    except asyncio.TimeoutError:
+                        pass
+                    self.grade_available = False
+                else:
+                    await workflow.sleep(min(2, remaining))
 
         reason = "attempts_exhausted"
         for attempt in range(1, request["max_attempts"] + 1):
             receipt = await wait_for({"kind": "attempt", "attempt": attempt})
             reason = receipt["reason"]
             if reason == "completed":
-                receipt = await wait_for({"kind": "verify"})
+                ticket = {"kind": "verify"}
+                if request.get("evaluation"):
+                    ticket.update(context)
+                receipt = await wait_for(ticket)
                 reason = receipt["reason"]
+                if reason == "accepted" and request.get("evaluation"):
+                    await exchange("apply_harbor_fixture", receipt)
                 break
             if reason != "interrupted":
                 break

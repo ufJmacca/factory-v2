@@ -1,0 +1,38 @@
+services:
+  harbor-bridge:
+    image: ${COMPOSE_PROJECT_NAME}-harbor
+    init: true
+    command: ["harbor", "serve", "--host", "0.0.0.0", "--data-dir", "${BRIDGE_ROOT}/harbor", "--max-concurrent", "2"]
+    working_dir: /factory
+    environment:
+      PYTHONPATH: /factory/src:/factory
+      FACTORY_BRIDGE_ROOT: ${BRIDGE_ROOT}
+      HARBOR_API_KEY: ${BRIDGE_API_KEY}
+    networks: [recovery]
+    volumes:
+      - .:/factory:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${BRIDGE_ROOT}:${BRIDGE_ROOT}
+
+  outcome-worker:
+    environment:
+      BRIDGE_ROOT: ${BRIDGE_ROOT}
+      BRIDGE_API_KEY: ${BRIDGE_API_KEY}
+    volumes:
+      - ${BRIDGE_ROOT}:${BRIDGE_ROOT}
+      - ./evaluation:/factory/evaluation:ro
+
+  harbor-outcome-worker:
+    image: ${COMPOSE_PROJECT_NAME}-outcome-worker
+    init: true
+    command: ["python", "-m", "factory.outcome_worker", "worker"]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      OUTCOME_EVIDENCE: /outcome-evidence
+      OUTCOME_TASK_QUEUE: harbor-delivery
+    networks: [recovery]
+    volumes:
+      - ${OUTCOME_EVIDENCE_ROOT}:/outcome-evidence
+    depends_on:
+      temporal:
+        condition: service_healthy
