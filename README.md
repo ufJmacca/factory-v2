@@ -86,3 +86,9 @@ PYTHONPATH=src python -m factory.verified_patch --evidence "$EVIDENCE_DIR/archiv
 ```
 
 The command leaves the archive untouched and writes the binary-capable Git diff to stdout only after checking the evidence for a completed, accepted delivery. Missing or corrupt evidence produces a diagnostic on stderr and a nonzero exit status.
+
+## Calibrate the Harbor task
+
+Run `make verify-harbor` on the trusted Docker host with the frozen archives.
+The [Harbor reviewer guide](docs/verify-harbor.md) lists the inputs and explains
+how to read the four model-free trial receipts.

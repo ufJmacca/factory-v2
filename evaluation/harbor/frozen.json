@@ -1,0 +1,47 @@
+{
+  "grader": {
+    "evaluation/harbor/tasks/verified-patch/tests/docker-compose.yaml": "e941da2d0b7e476176e1d379f8a7bd9d0b36b49d1d60e6d12e2236ce90777784",
+    "evaluation/harbor/tasks/verified-patch/tests/grade.py": "497cb861985878c210b1ad41e2afde60cb50ce9cb944ed9f51798248efc7be6d",
+    "evaluation/harbor/tasks/verified-patch/tests/test.sh": "61f029a78bb56af606ece13ee95b1d7910ca1544df1ffca247ca95a51a6c6371",
+    "src/factory/verify.py": "c994f8d8862f83142a5687a3b7e2037c20c0f94269b1505bebc0da19df98cc08"
+  },
+  "harbor_revision": "3ee9f53e6b459712fdec4e8ce6613d7aa5610299",
+  "harbor_version": "0.26.0",
+  "historical": {
+    "base_sha": "31f67b2ea40d4fa4570b26dd9b175e9fe423f416",
+    "base_tree": "20746497d8ecdfd01ae0ef5d34b8cdceb6d7d5c5",
+    "expected_patch": "34bd326f317a37b2e35d02cf9e70be42cfad700681960f23d870e7cb22a82540",
+    "factory_sha": "1f06b6edf6ee9af7b1aed51eb697ecc0c85cce30",
+    "grader": "abf95a8ec118ca35b8de210d3b9fb02d480af6dbec5bab9d2b974638a311aec7",
+    "known_sha": "30ad19025943db2134ca58d9b1eb51510c254796",
+    "records_tree": "c83a22d7cfaafbe7d136da55e16622e365c5ee2fc06fde50eda95799b8b0f213",
+    "recovery": "51edb1945b486cc2da792141d88a50c4f83a2aabe4531abe46792a435dea9673",
+    "request": "399ae9e79c4bd11da28271ac5e2da1478504c5cf900d655ba893d445da54bef8",
+    "run_id": "pr03-proxy-final",
+    "skills": {
+      ".agents/skills/delivery-evidence/SKILL.md": "9239a0a7300d5dc82aca0a6f97ff3edaa05b5c0e79a21fb26a5c02cb307ade67",
+      ".agents/skills/how/SKILL.md": "23d5cc79a449b9838242e7af5563aa8a4f0417bab136bbcc054b4bebc7284680",
+      ".agents/skills/tdd/SKILL.md": "eeb868e2dfebee528d730a67d7b17498fac4bb85dec2e38bc5c5176aca4d5d2f"
+    },
+    "workspace_image": "sha256:6621a6299aee68953236679ccd22c2f88a390934b02bf40de49b020480cd130c"
+  },
+  "provider": "harbor Docker provider at harbor_revision",
+  "runtime": {
+    "compose.harbor.yaml": "482fffbb6f451cce5acf4d500d10355e4243774bdec98a28a3e4efe9d429a18c",
+    "evaluation/harbor/.dockerignore": "08bb7a70af4ae5a9c15226f499f2e76055ebd521550f87eb102a1316cdb9df38",
+    "evaluation/harbor/Dockerfile": "d049960ac8e0cc833013c9ef1f1475db8e803b85d46658f7e2fa0676df13ab4c",
+    "evaluation/harbor/calibrate.py": "24768047f5cb194721ffc3f7cce4d10754fb3a784d5c9f39fcf02fac8a769713",
+    "evaluation/harbor/mutate.py": "17f8fa87861585ae7e3fc88e55e63e3117fd3d3f294016d354256282756f51af",
+    "evaluation/harbor/prepare.py": "180342a6b45295454d9ce43aeb71285a507e851603000671f37cc329338d26af",
+    "evaluation/harbor/receipt.py": "07f162bf68299a89d2d7f256da1a8353397cd0635cc19cf412170439dccdd512",
+    "scripts/verify-harbor.sh": "71ab95695bed6a44a963494bbdc60b7de55bf639845ac5becaf700361bb7f8d9"
+  },
+  "schema_version": 1,
+  "task": {
+    "evaluation/harbor/split.json": "f27c9b73edc7f167e9608d56102acb5bb617abfa8731ae37b94b986b1da41ded",
+    "evaluation/harbor/tasks/verified-patch/environment/boot.sh": "09951a9db8d502af0982bc59e0ffcab43d2c0a9c56ba8d00d0ff79fba2df72a7",
+    "evaluation/harbor/tasks/verified-patch/environment/docker-compose.yaml": "5cef986c2465de1935791ef2b7ab530d7f9be57f55d2734a9bbccf37f80eb107",
+    "evaluation/harbor/tasks/verified-patch/instruction.md": "7c974a31814bd0afa31bc86bb7e06834ff9d3437602bce7d06e94bbe886b7b9d",
+    "evaluation/harbor/tasks/verified-patch/task.toml": "4f8fcb31c50f777f32944b5aef302639cc48784a6b8251e8eafbf7617cae5198"
+  }
+}

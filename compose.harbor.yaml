@@ -1,0 +1,17 @@
+services:
+  harbor:
+    profiles: [harbor]
+    build:
+      context: evaluation/harbor
+    working_dir: /factory
+    environment:
+      PYTHONPATH: /factory/src:/factory
+    command: ["harbor", "--version"]
+    network_mode: none
+    volumes:
+      - .:/factory:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HARBOR_RUN_DIR:-./.evidence}:${HARBOR_RUN_DIR:-/evidence}
+      - ${HARBOR_P03_ARCHIVE:-./evaluation/harbor}:/p03:ro
+      - ${HARBOR_RECORDS_ARCHIVE:-./evaluation/harbor}:/records:ro
+      - ${HARBOR_HELD_OUT_DIR:-./evaluation/harbor}:/held-out:ro

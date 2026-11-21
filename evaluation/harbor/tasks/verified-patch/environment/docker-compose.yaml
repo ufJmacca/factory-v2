@@ -1,0 +1,26 @@
+services:
+  main:
+    network_mode: none
+    pull_policy: never
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    init: true
+    tmpfs:
+      - /logs:rw,nosuid,nodev,noexec,size=32m,mode=0755
+      - /tmp:rw,nosuid,nodev,size=96m,mode=1777
+      - /work:rw,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0755
+    environment:
+      HOME: /tmp
+      GIT_CONFIG_NOSYSTEM: "1"
+      GIT_CONFIG_GLOBAL: /dev/null
+    volumes:
+      - "${CONTEXT_DIR}:/seed:ro"
+    command: ["/bin/sh", "/seed/boot.sh"]
+    healthcheck:
+      test: ["CMD", "test", "-e", "/tmp/ready"]
+      interval: 1s
+      timeout: 1s
+      retries: 10

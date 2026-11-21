@@ -1,0 +1,17 @@
+services:
+  main:
+    network_mode: none
+    pull_policy: never
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, MKNOD, SETGID, SETUID, SYS_CHROOT]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    init: true
+    tmpfs:
+      - /jail:rw,exec,dev,nosuid,size=416m,mode=0755
+      - /tmp:rw,nosuid,nodev,noexec,size=192m,mode=1777
+      - /output:rw,nosuid,nodev,noexec,size=16m,mode=0755
+      - /logs:rw,nosuid,nodev,noexec,size=32m,mode=0755
+    volumes:
+      - "${CONTEXT_DIR}/protected:/tests:ro"
