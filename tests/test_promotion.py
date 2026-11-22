@@ -193,6 +193,27 @@ class PromotionTest(unittest.TestCase):
         }, now=104)
         self.assertEqual(self.registry.report(1)["decision"], "rollback_required")
 
+    def test_later_cost_evidence_can_complete_an_observation(self):
+        self.registry.transition(self.activation, now=100)
+        self.admit("reconciled-cost", 101)
+        usage = {
+            "id": "usage", "run_id": "reconciled-cost", "observer": "reviewer",
+            "metrics": {"reopens": 0, "rollbacks": 0, "reviewer_seconds": 30, "cost_microusd": None},
+        }
+        self.registry.observe(usage, now=102)
+        invoice = {
+            **usage, "id": "invoice",
+            "metrics": {"reopens": 0, "rollbacks": 0, "reviewer_seconds": 0, "cost_microusd": 250000},
+            "resolves": {"cost_microusd": "usage"},
+        }
+        self.registry.observe(invoice, now=103)
+        report = self.registry.report(1)
+        self.assertEqual(report["unknown"]["cost_microusd"], 0)
+        self.assertEqual(report["totals"]["cost_microusd"], 250000)
+        self.assertEqual(report["decision"], "within_limits")
+        with self.assertRaises(Conflict):
+            self.registry.observe({**invoice, "id": "second-invoice"}, now=104)
+
     def test_expiry_ends_an_underfilled_cohort(self):
         self.registry.transition(self.activation, now=100)
         self.assertEqual(self.admit("window-expired", 150)["factory_digest"], self.baseline)
