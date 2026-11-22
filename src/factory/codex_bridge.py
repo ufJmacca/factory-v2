@@ -1,3 +1,4 @@
+from copy import deepcopy
 import json
 from pathlib import Path
 import subprocess
@@ -10,6 +11,11 @@ from factory.harbor_binding import Binding, LeaseLost
 
 
 PHASES = ("investigation", "red", "green", "refactor", "submission")
+RED_TEST_EXECUTABLES = ("python", "python3", "uv")
+RED_ARGV_GUIDANCE = (
+    "At red, use python, python3, or uv as argv[0]. Put flags and paths in later elements. "
+    "If the test needs PYTHONPATH, set up imports inside the test or a Python launcher."
+)
 TOOLS = [
     {
         "name": "workspace",
@@ -31,6 +37,15 @@ TOOLS = [
         },
     },
 ]
+
+
+def tool_definitions(red_argv_guidance: bool = False) -> list[dict]:
+    tools = deepcopy(TOOLS)
+    if red_argv_guidance:
+        milestone = next(tool for tool in tools if tool["name"] == "milestone")
+        milestone["inputSchema"]["properties"]["argv"]["description"] = RED_ARGV_GUIDANCE
+    return tools
+
 
 MARKER_SCRIPT = """
 import os, stat, sys
@@ -145,7 +160,7 @@ class Bridge:
             if phase == "red":
                 if (not isinstance(argv, list) or not 0 < len(argv) <= 30
                         or not all(isinstance(arg, str) and 0 < len(arg) <= 300 for arg in argv)
-                        or argv[0] not in ("python", "python3", "uv")):
+                        or argv[0] not in RED_TEST_EXECUTABLES):
                     raise Conflict("provide the behavioral check as python or uv argv")
                 changed = self.git("diff", "--name-only", self.base, head).splitlines()
                 if (head == self.base or self.git("rev-parse", "HEAD^").strip() != self.base
@@ -195,6 +210,8 @@ class Bridge:
 
 
 def serve(bridge: Bridge):
+    admitted = bridge.store.read(bridge.run_id, "request") or {}
+    tools = tool_definitions(admitted.get("red_argv_guidance") is True)
     for line in sys.stdin.buffer:
         request = json.loads(line)
         if "id" not in request:
@@ -203,7 +220,7 @@ def serve(bridge: Bridge):
         result = {
             "initialize": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
                            "serverInfo": {"name": "factory-workspace", "version": "1"}},
-            "tools/list": {"tools": TOOLS},
+            "tools/list": {"tools": tools},
             "ping": {},
         }.get(method)
         reply = {"jsonrpc": "2.0", "id": request["id"]}
