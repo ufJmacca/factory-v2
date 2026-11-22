@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from time import time
@@ -10,9 +12,9 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from factory.codex_delivery import dispatch
+from factory.codex_delivery import cli_args, dispatch
 from factory.evidence import Evidence, encode
-from factory.harbor_binding import Binding
+from factory.harbor_binding import Binding, TRUSTED_WORKSPACE_MARKER
 
 
 class FixtureWorkspace:
@@ -25,6 +27,51 @@ class FixtureWorkspace:
 
     def run(self, argv):
         return {"exit_code": 0, "output": "/work/product", "truncated": False}
+
+
+class BridgeMetadataTest(unittest.TestCase):
+    def test_only_admitted_true_adds_the_red_argv_description(self):
+        description = (
+            "At red, use python, python3, or uv as argv[0]. Put flags and paths in later elements. "
+            "If the test needs PYTHONPATH, set up imports inside the test or a Python launcher."
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = Evidence(root)
+            tools = {}
+            for arm, field in {
+                "legacy": {}, "baseline": {"red_argv_guidance": False},
+                "candidate": {"red_argv_guidance": True}, "string": {"red_argv_guidance": "true"},
+            }.items():
+                binding = Binding(root, str(uuid4()))
+                request = store.admit({
+                    "run_id": binding.name, "base_sha": "0" * 40,
+                    "workspace_marker": TRUSTED_WORKSPACE_MARKER, "evaluation": {"rollout": binding.rollout},
+                    **field,
+                })
+                launch = cli_args(
+                    "codex", root, store, {**request, "attempt": 1}, binding,
+                    {"model": "gpt-6.2-sol", "reasoning_effort": "medium"},
+                )
+                mcp_args = next(arg for arg in launch if arg.startswith("mcp_servers.factory.args="))
+                # Client input cannot select the variant for any run.
+                call = {"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                        "params": {"red_argv_guidance": arm != "candidate"}}
+                result = subprocess.run(
+                    [sys.executable, *json.loads(mcp_args.split("=", 1)[1])],
+                    input=encode(call), capture_output=True, check=True, timeout=10,
+                    env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+                )
+                tools[arm] = json.loads(result.stdout)["result"]["tools"]
+
+        baseline = tools["baseline"]
+        self.assertEqual(tools["legacy"], baseline)
+        self.assertEqual(tools["string"], baseline)
+        baseline_argv = next(tool for tool in baseline if tool["name"] == "milestone")
+        self.assertEqual(baseline_argv["inputSchema"]["properties"]["argv"],
+                         {"type": "array", "items": {"type": "string"}})
+        baseline_argv["inputSchema"]["properties"]["argv"]["description"] = description
+        self.assertEqual(tools["candidate"], baseline)
 
 
 class DispatchTest(unittest.TestCase):
