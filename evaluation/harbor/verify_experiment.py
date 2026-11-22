@@ -12,11 +12,11 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from evaluation.harbor.pilot_freeze import pilot_manifest
 from evaluation.harbor.prepare import HERE, record_tree
 from factory.evidence import Conflict, Evidence, digest, encode, publish
-from factory.fresh_pilot import require_approval
+from factory.fresh_pilot import RED_ARGV_PILOT_ID, require_approval
 from factory.harbor_binding import Binding, TRUSTED_WORKSPACE_MARKER
 from factory.harbor_experiment import (
     LIVE_ENVELOPE, ORDER_SEED, REPETITIONS, THRESHOLDS, assignment_plan, plan_digest,
-    report, terminal, workspace_rejections,
+    first_red_launcher_rejected, report, terminal, workspace_rejections,
 )
 from factory.harbor_receipt import InvalidHarborGrade
 from factory.harbor_supervisor import (
@@ -137,7 +137,7 @@ async def cancel_attempt(api, store, name, handle):
         await wait_until(cleaned, time() + 45, "Harbor attempt cleanup could not be confirmed")
 
 
-def attempt_record(store, name):
+def attempt_record(store, name, *, red_argv_pilot=False):
     intent = store.read(name, "harbor-intent")
     if intent is None:
         return None
@@ -155,11 +155,12 @@ def attempt_record(store, name):
     if run and not submitted:
         submitted = (store.read(run, "submission") or {}).get("head_sha")
     native = attempt.get("native_events")
+    native_data = store.read_blob(native) if native else None
     checked = grade.get("checked_sha")
     scored = bool(checked and checked == submitted)
     accepted = scored and grade["decision"] == "accepted" and manifest.get("status") == "verified" and bool(fixture)
     complete = bool(scored and manifest and native and (grade["decision"] == "rejected" or accepted))
-    return {
+    result = {
         "number": 1, "submission_intent": intent["request_digest"], "job": job, "rollout": rollout,
         "run_id": run, "temporal_run_id": dispatch.get("temporal_run_id"),
         "submitted_sha": submitted, "checked_sha": checked, "scored": scored, "accepted": accepted,
@@ -171,17 +172,25 @@ def attempt_record(store, name):
         "terminal_manifest": store.blob(encode(manifest)) if manifest else None,
         "fixture_receipt": store.blob(encode(fixture)) if fixture else None,
         "evidence": export.get("artifacts", {}), "native_events": native,
-        "workspace_rejections": workspace_rejections(store.read_blob(native)) if native else None,
+        "workspace_rejections": workspace_rejections(native_data) if native_data is not None else None,
         "usage": attempt.get("usage"), "cost_usd": attempt.get("billing"), "runner_disposition": attempt.get("reason"),
         "execution_reserved": bool(run and store.read(run, "attempt-1-intent")),
         "agent_container": (store.read(run, "harbor-ready") or {}).get("container") if run else None,
         "workflow_disposition": manifest.get("reason"),
     }
+    if red_argv_pilot:
+        request = (store.read(run, "request") or {}) if run else {}
+        result["red_argv_guidance"] = request.get("red_argv_guidance")
+        result["first_red_launcher_rejected"] = (
+            first_red_launcher_rejected(native_data) if native_data is not None else None
+        )
+    return result
 
 
 async def drive(store, manifest, action):
     live = manifest["mode"] == "live"
     fresh_pilot = manifest["schema_version"] == 2
+    red_argv_pilot = manifest.get("pilot_kind") == RED_ARGV_PILOT_ID
     envelope = manifest["envelope"]
     frozen = plan_digest(manifest)
     if live:
@@ -223,7 +232,8 @@ async def drive(store, manifest, action):
             stop = "scripted_batch_cap"
         if stop:
             await recover_stopped(api, client, store, name, started)
-            terminal(store, row, {"disposition": "stopped", "reason": stop, "attempt": attempt_record(store, name)})
+            terminal(store, row, {"disposition": "stopped", "reason": stop,
+                                  "attempt": attempt_record(store, name, red_argv_pilot=red_argv_pilot)})
             continue
         task = manifest["tasks"][task_id]
         config = manifest["configuration"]
@@ -240,7 +250,7 @@ async def drive(store, manifest, action):
                 {"grader_digest": "0" * 64} if task_id == "profile-preview" else None)
         trial_api = GradeDrill(token, fault) if fault else api
         lock = {**task, "task_id": task_id}
-        if not live and task_id == "verified-patch" and arm_name == "baseline":
+        if not live and not red_argv_pilot and task_id == "verified-patch" and arm_name == "baseline":
             lock["scripted_rejection"] = True
         handle = None
         disposition = None
@@ -252,7 +262,7 @@ async def drive(store, manifest, action):
                 exhausted = "frozen_input_drift"
                 await recover_stopped(api, client, store, name, started)
                 terminal(store, row, {"disposition": "failed", "reason": str(error), "batch_stop": exhausted,
-                                      "attempt": attempt_record(store, name)})
+                                      "attempt": attempt_record(store, name, red_argv_pilot=red_argv_pilot)})
                 continue
         try:
             if not fresh_pilot:
@@ -286,7 +296,10 @@ async def drive(store, manifest, action):
                 raise
             await cancel_attempt(api, store, name, handle)
             disposition, reason = "failed", str(error)
-        attempt = attempt_record(store, name)
+        attempt = attempt_record(store, name, red_argv_pilot=red_argv_pilot)
+        if (red_argv_pilot and attempt and attempt["execution_reserved"]
+                and attempt["red_argv_guidance"] is not arm["red_argv_guidance"]):
+            raise Conflict("revised pilot attempt differs from its sealed guidance arm")
         if attempt and attempt["runner_disposition"] == "quota_exhausted":
             exhausted = "subscription_quota"
         if fresh_pilot and attempt and attempt["runner_disposition"] in {
@@ -302,7 +315,7 @@ async def drive(store, manifest, action):
             result["batch_stop"] = exhausted
         terminal(store, row, result)
 
-    result = report(store, plan, live=live, fresh_pilot=fresh_pilot)
+    result = report(store, plan, live=live, fresh_pilot=fresh_pilot, red_argv_pilot=red_argv_pilot)
     if result["dispositions"].get("pending", 0):
         raise Conflict("experiment stopped with unreconciled assignments")
     if not live and not stop_file.exists() and fresh_pilot:

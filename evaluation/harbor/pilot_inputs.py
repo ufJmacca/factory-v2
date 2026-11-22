@@ -12,7 +12,9 @@ from evaluation.harbor.prepare import HERE, checked, record_tree, require
 from factory.agent_profile import resolve
 from factory.checkpoint import encode as encode_bundle, working_state
 from factory.evidence import Conflict, Evidence, digest, encode, validate_run_id
-from factory.fresh_pilot import require_approval, task_instruction
+from factory.fresh_pilot import RED_ARGV_PILOT_ID, require_approval, task_instruction
+from factory.harbor_experiment import ARMS
+from factory.harbor_receipt import runtime_pin
 from factory.verify import Rejected, reconstruct
 
 
@@ -134,6 +136,20 @@ def configure(store, build, worker, mode, cli_build, source):
             raise Conflict("the frozen baseline differs from the active effective configuration")
         transport = store.read("bridge", "frozen", required=True)["historical_transport"]
         store.blob(Evidence(archive).read_blob(transport["ca_digest"]))
+    if design["id"] == RED_ARGV_PILOT_ID:
+        profile = resolve(source, baseline, store)
+        require(cli_build == profile["cli_build"], "revised pilot CLI build drifted")
+        transport = transport or {"kind": "scripted-responses"}
+        reference = store.blob(encode(profile))
+        runtime = runtime_pin(profile, build, worker, transport)
+        store.record(RUN, "configuration", {
+            "arms": {name: {"factory_sha": baseline, "configuration": reference, "runtime": runtime,
+                            "red_argv_guidance": name == "candidate"} for name in ARMS},
+            "base_checkpoints": {name: store.blob(encode(base)) for name, base in bases.items()},
+            "transport": transport, "tools": profile["tools"],
+            "source": {"red_argv_proposal": design["source"]["red_argv_proposal"]},
+        })
+        return
     prepare(store.root, archive, baseline, build, worker, mode, source_repo=source, cli_build=cli_build,
             trusted_transport=transport, checkpoints=bases)
 

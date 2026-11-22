@@ -5,11 +5,19 @@ from factory.harbor_experiment import ARMS, LIVE_ENVELOPE, TUNING, plan_digest
 
 
 PILOT_ID = "p09-fresh-paired-pilot"
+RED_ARGV_PILOT_ID = "p09-red-argv-pilot"
 PILOT_ENVELOPE = {**LIVE_ENVELOPE, "new_paid_infrastructure_usd": 0}
 
 
 def task_instruction(prompt):
     return prompt + "\n\nUse the assigned workspace tool for repository operations.\n"
+
+
+def require_red_argv_isolation(arms):
+    if (set(arms) != set(ARMS) or arms["baseline"].get("red_argv_guidance") is not False
+            or arms["candidate"].get("red_argv_guidance") is not True
+            or {**arms["baseline"], "red_argv_guidance": True} != arms["candidate"]):
+        raise Conflict("revised pilot arms must differ only in red argv guidance")
 
 
 def assignment_rows(design):
@@ -19,12 +27,14 @@ def assignment_rows(design):
         held_out = design["tasks"]["held_out"]
         held_out_ids = {task["id"] for task in held_out}
         repositories = {task["repository"].casefold() for task in held_out}
-        if (design["id"] != PILOT_ID or design["tasks"]["historical"]["id"] != TUNING
+        prefixes = {PILOT_ID: "p09", RED_ARGV_PILOT_ID: "r09"}
+        prefix = prefixes.get(design["id"])
+        if (prefix is None or design["tasks"]["historical"]["id"] != TUNING
                 or len(rows) != PILOT_ENVELOPE["max_assignments"]
                 or len(held_out) != 8 or len(held_out_ids) != 8 or len(repositories) != 8
                 or TUNING in held_out_ids or any(envelope[key] != value for key, value in PILOT_ENVELOPE.items())):
             raise Conflict("fresh pilot design exceeds the approved task or runtime envelope")
-        if [row["id"] for row in rows] != [f"p09-{i:02d}" for i in range(1, len(rows) + 1)]:
+        if [row["id"] for row in rows] != [f"{prefix}-{i:02d}" for i in range(1, len(rows) + 1)]:
             raise Conflict("fresh pilot assignment identities differ from the sealed order")
         pairs = list(zip(rows[::2], rows[1::2]))
         first_tasks = [first["task"] for first, _ in pairs]

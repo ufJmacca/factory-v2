@@ -1,9 +1,12 @@
 import json
 import re
 
-from factory.evidence import Conflict
-from factory.fresh_pilot import PILOT_ENVELOPE, assignment_rows, task_instruction
-from factory.harbor_experiment import ARMS, FRESH_PILOT_THRESHOLDS, TUNING
+from factory.codex_bridge import tool_definitions
+from factory.evidence import Conflict, digest, encode
+from factory.fresh_pilot import (
+    PILOT_ENVELOPE, RED_ARGV_PILOT_ID, assignment_rows, require_red_argv_isolation, task_instruction,
+)
+from factory.harbor_experiment import ARMS, FRESH_PILOT_THRESHOLDS, RED_ARGV_PILOT_THRESHOLDS, TUNING
 from factory.harbor_receipt import ISOLATION_CHECKS
 
 
@@ -36,12 +39,30 @@ def verify_calibration(store, task):
             raise Conflict("offline control grade differs from the frozen acceptance contract")
 
 
+def red_argv_tool_pins(design):
+    baseline = tool_definitions()
+    candidate = tool_definitions(red_argv_guidance=True)
+    pins = {"baseline": digest(encode(baseline)), "candidate": digest(encode(candidate))}
+    milestone = next(tool for tool in candidate if tool["name"] == "milestone")
+    description = milestone["inputSchema"]["properties"]["argv"].pop("description", None)
+    if (baseline != candidate or not isinstance(description, str)
+            or digest(description.encode()) != design["treatment"]["red_argv_description_sha256"]):
+        raise Conflict("revised pilot tool definitions differ beyond the approved argv description")
+    return pins
+
+
 def verify_configuration(store, design, configuration, mode):
     if set(configuration["arms"]) != set(ARMS) or configuration["tools"] != design["runtime"]["tools"]:
         raise Conflict("fresh pilot bot selector or configured tools changed")
-    if any(configuration["source"][key] != design["source"][f"phase05_{key}"]
-           for key in ("candidate_diff", "candidate_manifest")):
+    if design["id"] == RED_ARGV_PILOT_ID:
+        require_red_argv_isolation(configuration["arms"])
+        if configuration["source"] != {"red_argv_proposal": design["source"]["red_argv_proposal"]}:
+            raise Conflict("revised pilot source proposal differs from the design")
+    elif any(configuration["source"][key] != design["source"][f"phase05_{key}"]
+             for key in ("candidate_diff", "candidate_manifest")):
         raise Conflict("fresh pilot candidate differs from Phase 05")
+    elif any("red_argv_guidance" in arm for arm in configuration["arms"].values()):
+        raise Conflict("unexpected red argv guidance in the Phase 05 comparison")
     transport = configuration["transport"]
     if mode == "scripted":
         if transport != {"kind": "scripted-responses"}:
@@ -94,13 +115,20 @@ def pilot_manifest(store, mode):
     harbor_image = (store.root / "harbor-image.txt").read_text().strip()
     if harbor_image != design["runtime"]["harbor_image"]:
         raise Conflict("fresh pilot Harbor image differs from the design")
+    revised = {}
+    thresholds = FRESH_PILOT_THRESHOLDS
+    if design["id"] == RED_ARGV_PILOT_ID:
+        if design.get("thresholds") != RED_ARGV_PILOT_THRESHOLDS:
+            raise Conflict("revised pilot thresholds differ from the sealed design")
+        revised = {"pilot_kind": RED_ARGV_PILOT_ID, "tool_definition_sha256": red_argv_tool_pins(design)}
+        thresholds = RED_ARGV_PILOT_THRESHOLDS
     return {
-        "schema_version": 2, "design_sha256": design_digest, "mode": mode,
+        **revised, "schema_version": 2, "design_sha256": design_digest, "mode": mode,
         "envelope": PILOT_ENVELOPE if mode == "live" else {
             **PILOT_ENVELOPE, "max_executions": 2, "execution_seconds": 120, "batch_seconds": 900,
             "subscription_executions": 0,
         },
         "assignments": assignments, "tasks": tasks, "configuration": configuration, "harbor_image": harbor_image,
-        "thresholds": FRESH_PILOT_THRESHOLDS,
+        "thresholds": thresholds,
         "scripted_dispatch": [row["id"] for row in assignments[:2]] if mode == "scripted" else [],
     }
