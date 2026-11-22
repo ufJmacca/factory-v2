@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from evaluation.harbor.pilot_freeze import verify_calibration
 from factory.evidence import Conflict, Evidence, digest, encode
-from factory.fresh_pilot import assignment_rows, require_approval
+from factory.fresh_pilot import RED_ARGV_PILOT_ID, assignment_rows, require_approval, require_red_argv_isolation
 from factory.harbor_experiment import LIVE_ENVELOPE, plan_digest
 from factory.harbor_receipt import ISOLATION_CHECKS, workspace_proof_digest
 
@@ -49,6 +49,26 @@ class FreshPilotTest(unittest.TestCase):
         design["authorized_envelope"]["max_executions"] += 1
         with self.assertRaises(Conflict):
             assignment_rows(design)
+
+    def test_red_argv_pilot_uses_distinct_assignment_identifiers(self):
+        design = pilot_design()
+        design["id"] = RED_ARGV_PILOT_ID
+        rows = design["schedule"]["assignments"]
+        with self.assertRaises(Conflict):
+            assignment_rows(design)
+        for row in rows:
+            row["id"] = row["id"].replace("p09-", "r09-", 1)
+        self.assertEqual(assignment_rows(design), [{**row, "pair": 1} for row in rows])
+
+    def test_red_argv_pilot_rejects_arm_drift_outside_description(self):
+        common = {"configuration": "same", "runtime": {"worker_image": "same", "model": "same"}}
+        arms = {"baseline": {**common, "red_argv_guidance": False},
+                "candidate": {**common, "red_argv_guidance": True}}
+        require_red_argv_isolation(arms)
+        for drift in ({"configuration": "different"}, {"runtime": {"worker_image": "different", "model": "same"}},
+                      {"red_argv_guidance": False}, {"red_argv_guidance": 1}):
+            with self.subTest(drift=drift), self.assertRaises(Conflict):
+                require_red_argv_isolation({**arms, "candidate": {**arms["candidate"], **drift}})
 
     def test_live_approval_binds_both_the_design_and_execution_lock(self):
         manifest = {"mode": "live", "design_sha256": "a" * 64, "envelope": LIVE_ENVELOPE}
