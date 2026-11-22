@@ -14,6 +14,7 @@ from factory.evidence import Conflict, Evidence, digest, encode
 
 REGISTRY = "factory-promotion"
 METRICS = ("reopens", "rollbacks", "reviewer_seconds", "cost_microusd")
+ATTRIBUTABLE_METRICS = {"reviewer_seconds", "cost_microusd"}
 ADMISSION_FIELDS = {"factory_sha", "configuration", "runtime", "workspace_image", "red_argv_guidance"}
 
 
@@ -44,9 +45,17 @@ def deadline(value):
 
 def metrics_valid(metrics, *, allow_unknown=False):
     return isinstance(metrics, dict) and set(metrics) == set(METRICS) and all(
-        integer(value) or (allow_unknown and value is None and key in {"reviewer_seconds", "cost_microusd"})
+        integer(value) or (allow_unknown and value is None and key in ATTRIBUTABLE_METRICS)
         for key, value in metrics.items()
     )
+
+
+def observations(run_dir):
+    return [json.loads(path.read_bytes())["event"] for path in run_dir.glob("observation-*.json")]
+
+
+def resolved_measurements(events):
+    return {(previous, metric) for event in events for metric, previous in event.get("resolves", {}).items()}
 
 
 class Promotion:
@@ -160,14 +169,15 @@ class Promotion:
         unknown = dict.fromkeys(METRICS, 0)
         observed = 0
         for run in requests:
-            events = [json.loads(path.read_bytes())["event"] for path in run.glob("observation-*.json")]
+            events = observations(run)
             if new_event and run.name == new_event["run_id"]:
                 events.append(new_event)
             observed += bool(events)
+            resolved = resolved_measurements(events)
             for event in events:
                 for metric, amount in event["metrics"].items():
                     if amount is None:
-                        unknown[metric] += 1
+                        unknown[metric] += (event["id"], metric) not in resolved
                     else:
                         totals[metric] += amount
         exceeded = [metric for metric in METRICS if totals[metric] > scope["limits"][metric]]
@@ -236,9 +246,14 @@ class Promotion:
             })
 
     def observe(self, event, *, now=None):
-        require(isinstance(event, dict) and event.keys() == {"id", "run_id", "observer", "metrics"}
+        fields = {"id", "run_id", "observer", "metrics"}
+        require(isinstance(event, dict) and fields <= event.keys() <= fields | {"resolves"}
                 and identity(event["id"]) and identity(event["run_id"]) and named(event["observer"])
                 and metrics_valid(event["metrics"], allow_unknown=True), "invalid cohort observation")
+        resolves = event.get("resolves", {})
+        require(isinstance(resolves, dict) and resolves.keys() <= ATTRIBUTABLE_METRICS
+                and all(identity(prior) and event["metrics"][metric] is not None for metric, prior in resolves.items()),
+                "a resolved observation needs a known measurement and prior observation ID")
         run_id, key = event["run_id"], "observation-" + event["id"]
         with self.store.lock(REGISTRY):
             if existing := self.store.read(run_id, key):
@@ -249,6 +264,12 @@ class Promotion:
             transition = self._cohort(request.get("factory_cohort"))
             close = transition["applied_at"] + transition["approval"]["scope"]["observation_seconds"]
             require(request["admitted_at"] <= now < close, "observation window is closed")
+            if resolves:
+                events = observations(self.store.run_dir(run_id))
+                previous = {row["id"]: row["metrics"] for row in events}
+                resolved = resolved_measurements(events)
+                require(all(prior in previous and previous[prior][metric] is None and (prior, metric) not in resolved
+                            for metric, prior in resolves.items()), "observation measurement is known or already resolved")
             return self.store.record(run_id, key, {
                 "event": event, "observed_at": now, "report": self._report(transition, event),
             })

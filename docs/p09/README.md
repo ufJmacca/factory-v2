@@ -39,8 +39,10 @@ reviewer's decision and checks the pilot evidence against its sealed digests.
 Use the host `gh` and Git to resolve the merge commit and fetch `origin/main`.
 Supply the deployed worker image ID from host Docker to `verify-merged`.
 It issues parity evidence when the merged commit is on the fetched main branch
-and its effective inputs match the reviewed candidate. Input drift requires
-fresh approval for affected trials.
+and its effective inputs match the reviewed candidate. The pilot worker image
+is the deployment pin. A clean rebuild produced a different image ID, so a
+deployment that selects the rebuilt image requires fresh approval for the
+affected trials.
 
 An activation request to `scripts.promotion` binds the prior digest and
 generation, reviewed candidate, promotion decision, merged parity evidence, and
@@ -52,8 +54,11 @@ rollback checks the current digest and generation and restores that baseline.
 
 Admit each approved cohort outcome through `scripts.promotion admit` before
 submitting the persisted request to the delivery worker. Report observations
-as increments with stable IDs. The registry records a rollback decision when a
-known total crosses its limit. Missing measurements keep the report incomplete.
+as increments with stable IDs. When a cost or reviewer measurement arrives
+later, use the `resolves` field to name the earlier observation with the missing
+value. The registry keeps both records and counts the measured value once.
+It records a rollback decision when a known total crosses its limit. Missing
+measurements keep the report incomplete.
 
 The fixture used the class `offline-python-fix`, with a two-run cap and a
 50-second observation window. Live cohort parameters and live activation are
