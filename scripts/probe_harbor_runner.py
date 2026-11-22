@@ -18,7 +18,7 @@ from factory.checkpoint import encode as base64_encode, git
 from factory.codex_transport import KEY_NAME, Proxy
 from factory.codex_workspace import seed
 from factory.evidence import Conflict, Evidence, encode
-from factory.harbor_binding import Binding
+from factory.harbor_binding import Binding, TRUSTED_WORKSPACE_MARKER
 from factory.harbor_receipt import export_submission, runtime_pin
 from factory.live_codex import grade
 from scripts import probe_codex_cli as fixture_cli
@@ -88,9 +88,12 @@ def calls_for(store, request):
         "sys.stdout.write('x' * 1_000_000); sys.stdout.flush(); "
         "Path('.git/factory-verbose-probe').touch(); sys.exit(7)"
     )
+    initial = "pwd"
+    if request.get("workspace_marker") != TRUSTED_WORKSPACE_MARKER:
+        initial = (f"test ! -e .git/factory-marker && printf %s {quote(marker)} > .git/factory-marker "
+                   f"&& test \"$(cat .git/factory-marker)\" = {quote(marker)}{hold} && printf %s {quote(marker)}")
     tools = [
-        ("workspace", {"command": f"test ! -e .git/factory-marker && printf %s {quote(marker)} > .git/factory-marker "
-                                  f"&& test \"$(cat .git/factory-marker)\" = {quote(marker)}{hold} && printf %s {quote(marker)}"}),
+        ("workspace", {"command": initial}),
         ("workspace", {"command": f"python -c {quote(verbose)}"}),
         ("workspace", {"command": "test -f .git/factory-verbose-probe"}),
         ("milestone", {"phase": "investigation", "note": "Verified workspace placement."}),
@@ -134,6 +137,8 @@ def run_one(store, run_id, cli, sentinel, records):
     binding = Binding(store.root, spec["rollout"]) if spec else None
     ticket = store.read(run_id, "dispatch-attempt-1", required=True)
     live = request["transport"]["kind"] == "cli-proxy"
+    if live and os.environ.get("FACTORY_HARBOR_SCRIPTED_ONLY"):
+        raise Conflict("scripted Harbor runner received a live transport")
 
     if binding:
         binding.require_active()
@@ -252,14 +257,18 @@ def watch(store, cli, sentinel, records, server):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["prepare", "watch", "run"])
+    parser.add_argument("mode", choices=["prepare", "watch", "run", "check-live-transport"])
     parser.add_argument("root", type=Path)
-    parser.add_argument("args", nargs="+")
+    parser.add_argument("args", nargs="*")
     args = parser.parse_args()
     store = Evidence(args.root)
     if args.mode == "prepare":
         sha, image, worker, transport = args.args
         prepare(store, sha, image, worker, transport == "live")
+    elif args.mode == "check-live-transport":
+        expected = store.read("experiment", "configuration", required=True)["transport"]
+        if proxy_from_env().pin(store) != expected:
+            raise Conflict("CLI Proxy Hub transport differs from the frozen pilot")
     else:
         cli, sentinel, records, target = args.args
         if args.mode == "watch":

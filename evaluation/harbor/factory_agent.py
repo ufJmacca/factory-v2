@@ -8,7 +8,7 @@ from harbor.agents.base import BaseAgent
 from harbor.models.trajectories.trajectory import Trajectory
 
 from factory.evidence import Conflict, Evidence
-from factory.harbor_binding import Binding, LeaseLost
+from factory.harbor_binding import Binding, LeaseLost, WORKSPACE_CWD
 
 
 class FactoryAgent(BaseAgent):
@@ -35,17 +35,18 @@ class FactoryAgent(BaseAgent):
         probe = await environment.exec(
             command="test \"$(id -u)\" = 10001 && test ! -e /var/run/docker.sock && "
                     f"test \"$(git rev-parse HEAD)\" = {shlex.quote(assignment['base_sha'])} && hostname",
-            cwd="/work/product", user="10001:10001", timeout_sec=10,
+            cwd=WORKSPACE_CWD, user="10001:10001", timeout_sec=10,
         )
         if probe.return_code:
             raise Conflict("Harbor workspace identity probe failed")
         binding.open()
         reason = "agent_failed"
         try:
+            container = probe.stdout.strip()
             store.record(binding.name, "harbor-ready", {
-                "rollout": binding.rollout, "assignment": self.assignment, "container": probe.stdout.strip(),
+                "rollout": binding.rollout, "assignment": self.assignment, "container": container,
             })
-            await self.work(environment, context, store, binding, assignment["deadline_epoch"])
+            await self.work(environment, context, store, binding, assignment["deadline_epoch"], container)
             reason = "submitted"
         except asyncio.CancelledError:
             reason = "harbor_cancelled"
@@ -53,7 +54,7 @@ class FactoryAgent(BaseAgent):
         finally:
             binding.revoke(reason)
 
-    async def work(self, environment, context, store, binding, deadline):
+    async def work(self, environment, context, store, binding, deadline, container):
         pending = None
         call_id = None
         try:
@@ -70,28 +71,14 @@ class FactoryAgent(BaseAgent):
                         if attempt["reason"] != "completed":
                             raise Conflict(f"delivery attempt ended with {attempt['reason']}")
                     if call := binding.next_call():
-                        call_id, argv, limit = call
-                        pending = asyncio.create_task(self.execute(environment, binding, argv, limit))
+                        call_id = call.call_id
+                        pending = asyncio.create_task(binding.execute(environment, call, container))
                 await asyncio.sleep(0.08)
             raise LeaseLost("Harbor assignment deadline")
         finally:
             if pending is not None:
                 pending.cancel()
                 await asyncio.gather(pending, return_exceptions=True)
-
-    @staticmethod
-    async def execute(environment, binding, argv, limit):
-        if not 0 < limit <= 16 * 1024 * 1024:
-            raise Conflict("invalid workspace output limit")
-        command = shlex.join(["timeout", "-k", "1s", "45s", *argv])
-        drain = f"{{ head -c {limit + 1}; cat >/dev/null; }}"
-        wrapped = "bash -o pipefail -c " + shlex.quote(f"{command} 2>&1 | {drain}")
-        binding.require_active()
-        result = await environment.exec(command=wrapped, cwd="/work/product",
-                                        user="10001:10001", timeout_sec=50)
-        data = ((result.stdout or "") + (result.stderr or "")).encode()
-        return {"exit_code": result.return_code, "output": data[:limit].decode(errors="replace"),
-                "truncated": len(data) > limit}
 
     @staticmethod
     async def export(environment, context, store, export):
