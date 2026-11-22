@@ -7,7 +7,18 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from factory.evidence import Conflict, Evidence, encode
-from factory.harbor_experiment import assignment_plan, compare_profiles, report, terminal, workspace_rejections
+from factory.harbor_experiment import (
+    assignment_plan, compare_profiles, first_red_launcher_rejected, report, terminal, workspace_rejections,
+)
+
+
+def red_event(argv, message, *, event_type="item.completed", phase="red", server="factory", status="failed"):
+    return encode({"type": event_type, "item": {
+        "type": "mcp_tool_call", "server": server, "tool": "milestone", "status": status,
+        "arguments": {"phase": phase, "note": "test", "argv": argv},
+        "result": {"content": [{"type": "text", "text": message}]} if message is not None else None,
+        "error": None,
+    }})
 
 
 class HarborExperimentTest(unittest.TestCase):
@@ -83,6 +94,31 @@ class HarborExperimentTest(unittest.TestCase):
         with self.assertRaises(Conflict):
             terminal(self.store, row, {"disposition": "accepted", "attempt": {"job": "other"}})
 
+    def test_first_red_launcher_rejection_uses_only_the_first_completed_factory_red(self):
+        message = "provide the behavioral check as python or uv argv"
+        wrong = red_event(["/usr/bin/env", "python3"], message)
+        right = red_event(["python3", "-m", "unittest"], '{"checkpoint":"recorded"}', status="completed")
+        ignored = (red_event(["bash"], message, event_type="item.started")
+                   + red_event(["bash"], message, phase="green")
+                   + red_event(["bash"], message, server="other"))
+        self.assertIsNone(first_red_launcher_rejected(ignored))
+        self.assertIsNone(first_red_launcher_rejected(red_event(["bash"], None) + wrong))
+        self.assertTrue(first_red_launcher_rejected(ignored + wrong + right))
+        self.assertIs(first_red_launcher_rejected(ignored + right + wrong), False)
+
+    def test_first_red_launcher_rejection_requires_the_exact_guard_and_valid_argv_shape(self):
+        message = "provide the behavioral check as python or uv argv"
+        for argv, observed in (
+            (["bash", "-c", "python -m unittest"], message + "."),
+            (["/venv/bin/python"], "commit the files for this phase before recording it"),
+            (["python"], message), (["python3"], message), (["uv"], message),
+            ("bash", message), ([], message), (["bash"] * 31, message),
+            (["bash", None], message), (["bash", ""], message), (["bash", "x" * 301], message),
+        ):
+            with self.subTest(argv=argv, observed=observed):
+                self.assertIs(first_red_launcher_rejected(red_event(argv, observed)), False)
+        self.assertIs(first_red_launcher_rejected(red_event(["bash"], message, status="completed")), False)
+
     def fresh_pilot(self, *, mechanism_pairs=2, historical_pass=True, historical_complete=True,
                     acceptance_gain=True, acceptance_loss=False):
         plan = []
@@ -137,3 +173,46 @@ class HarborExperimentTest(unittest.TestCase):
     def test_fresh_pilot_rejects_a_scored_regression_even_if_another_pair_is_incomplete(self):
         plan = self.fresh_pilot(historical_complete=False, acceptance_loss=True)
         self.assertEqual(report(self.store, plan, live=True, fresh_pilot=True)["decision"], "reject")
+
+    def red_argv_pilot(self, store, *, improvements=3, reverse=False, acceptance_loss=False,
+                       historical_pass=True, missing_metric=None, missing_grade=False, holdouts=8):
+        plan = []
+        for pair, task in enumerate(["verified-patch", *(f"upstream-{i}" for i in range(1, holdouts + 1))]):
+            for arm in ("baseline", "candidate"):
+                row = {"id": f"p10-{len(plan) + 1:02d}", "task": task, "pair": 1, "arm": arm}
+                plan.append(row)
+                accepted = not (arm == "candidate" and ((pair == 0 and not historical_pass)
+                                                        or (pair == 1 and acceptance_loss)))
+                complete = not (pair == holdouts and arm == "candidate" and missing_grade)
+                rejected = (arm == "baseline" and 0 < pair <= improvements
+                            or arm == "candidate" and pair == holdouts and reverse)
+                grade = ("accepted" if accepted else "rejected") if complete else None
+                attempt = {"cost_usd": None, "scored": complete, "accepted": accepted and complete,
+                           "evidence_complete": complete, "grade": grade, "workspace_rejections": 0}
+                if missing_metric != (pair, arm):
+                    attempt["first_red_launcher_rejected"] = rejected
+                terminal(store, row, {"disposition": grade or "invalid_grade", "attempt": attempt})
+        return report(store, plan, live=True, fresh_pilot=True, red_argv_pilot=True)
+
+    def test_red_argv_pilot_qualifies_with_three_improvements_and_tied_acceptance(self):
+        result = self.red_argv_pilot(self.store)
+        self.assertEqual(result["decision"], "eligible_for_review")
+        self.assertEqual(result["scope"], "scoped-pilot-review")
+        self.assertEqual(result["held_out"]["acceptance_gain"], 0)
+        self.assertEqual(result["held_out"]["first_red_launcher"], {
+            "pairs_measured": 8, "pairs_improved": 3, "pairs_reversed": 0,
+        })
+        first_pair = result["held_out"]["pairs"][0]
+        self.assertIs(first_pair["baseline_first_red_launcher_rejected"], True)
+        self.assertIs(first_pair["candidate_first_red_launcher_rejected"], False)
+
+    def test_red_argv_pilot_requires_all_quality_and_first_red_evidence(self):
+        for changes, expected in (
+            ({"improvements": 2}, "hold"), ({"reverse": True}, "hold"),
+            ({"historical_pass": False}, "hold"), ({"missing_grade": True}, "hold"),
+            ({"missing_metric": (0, "baseline")}, "hold"), ({"missing_metric": (8, "candidate")}, "hold"),
+            ({"holdouts": 7}, "hold"), ({"acceptance_loss": True, "missing_grade": True}, "reject"),
+        ):
+            with self.subTest(**changes), TemporaryDirectory() as directory:
+                result = self.red_argv_pilot(Evidence(Path(directory)), **changes)
+                self.assertEqual(result["decision"], expected)
