@@ -3,6 +3,7 @@ import json
 from math import comb, isfinite
 from random import Random
 
+from factory.codex_bridge import RED_TEST_EXECUTABLES
 from factory.evidence import Conflict, digest, encode, validate_run_id
 from factory.proposal_evidence import REJECTED
 
@@ -31,6 +32,14 @@ FRESH_PILOT_THRESHOLDS = {
     "held_out_min_acceptance_gain": 1,
     "held_out_min_rejection_reduction": 2,
     "held_out_min_pairs_with_fewer_rejections": 2,
+    "required_scored_coverage": 1.0,
+}
+RED_ARGV_PILOT_THRESHOLDS = {
+    "historical_assignments_accepted": 2,
+    "held_out_pairs": 8,
+    "held_out_max_acceptance_regressions": 0,
+    "held_out_min_pairs_improved": 3,
+    "held_out_max_pairs_reversed": 0,
     "required_scored_coverage": 1.0,
 }
 
@@ -84,6 +93,32 @@ def workspace_rejections(native):
     return failures
 
 
+def first_red_launcher_rejected(native: bytes) -> bool | None:
+    """Classify the first completed red milestone from its native tool result."""
+    for line in native.splitlines():
+        event = json.loads(line)
+        if event["type"] != "item.completed":
+            continue
+        item = event["item"]
+        if (item.get("type"), item.get("server"), item.get("tool")) != ("mcp_tool_call", "factory", "milestone"):
+            continue
+        args = item.get("arguments")
+        if not isinstance(args, dict) or args.get("phase") != "red":
+            continue
+        texts = [block["text"] for block in (item.get("result") or {}).get("content", [])
+                 if block.get("type") == "text" and isinstance(block.get("text"), str)]
+        if not texts and not item.get("error"):
+            return None
+        argv = args.get("argv")
+        return (
+            item.get("status") == "failed" and "provide the behavioral check as python or uv argv" in texts
+            and isinstance(argv, list) and 0 < len(argv) <= 30
+            and all(isinstance(arg, str) and 0 < len(arg) <= 300 for arg in argv)
+            and argv[0] not in RED_TEST_EXECUTABLES
+        )
+    return None
+
+
 def terminal(store, assignment, result):
     return store.record(assignment["id"], "experiment-terminal", {**result, **assignment})
 
@@ -107,12 +142,12 @@ def totals(rows):
     }
 
 
-def pair_result(left, right):
+def pair_result(left, right, *, red_argv_pilot=False):
     by_arm = {row["arm"]: row for row in (left, right)}
     baseline, candidate = (by_arm[arm]["attempt"] or {} for arm in ARMS)
     complete = all(attempt.get("evidence_complete") for attempt in (baseline, candidate))
     rejected_calls = [attempt.get("workspace_rejections") for attempt in (baseline, candidate)]
-    return {
+    pair = {
         "task": left["task"], "pair": left["pair"],
         "assignments": {arm: row["id"] for arm, row in by_arm.items()},
         "complete": complete,
@@ -120,6 +155,10 @@ def pair_result(left, right):
         "baseline_accepted": baseline.get("accepted"), "candidate_accepted": candidate.get("accepted"),
         "baseline_rejected_calls": rejected_calls[0], "candidate_rejected_calls": rejected_calls[1],
     }
+    if red_argv_pilot:
+        pair.update(baseline_first_red_launcher_rejected=baseline.get("first_red_launcher_rejected"),
+                    candidate_first_red_launcher_rejected=candidate.get("first_red_launcher_rejected"))
+    return pair
 
 
 def paired_effects(pairs):
@@ -152,10 +191,37 @@ def fresh_pilot_decision(historical, mechanism):
     return "eligible_for_review", "The pilot met its quality and workspace-rejection gates for scoped review."
 
 
-def report(store, plan, *, live=False, fresh_pilot=False):
+def first_red_pair_effects(pairs):
+    outcomes = Counter()
+    for pair in pairs:
+        baseline = pair["baseline_first_red_launcher_rejected"]
+        candidate = pair["candidate_first_red_launcher_rejected"]
+        if type(baseline) is bool and type(candidate) is bool:
+            outcomes[baseline, candidate] += 1
+    return {"pairs_measured": sum(outcomes.values()), "pairs_improved": outcomes[True, False],
+            "pairs_reversed": outcomes[False, True]}
+
+
+def red_argv_pilot_decision(historical, held_out, mechanism):
+    thresholds = RED_ARGV_PILOT_THRESHOLDS
+    accepted = sum(pair[key] is True for pair in historical for key in ("baseline_accepted", "candidate_accepted"))
+    if len(historical) != 1 or accepted != thresholds["historical_assignments_accepted"]:
+        return "hold", "Both historical control assignments must pass."
+    if len(held_out) != thresholds["held_out_pairs"]:
+        return "hold", "The pilot requires eight held-out pairs."
+    if first_red_pair_effects(historical)["pairs_measured"] != 1 or mechanism["pairs_measured"] != len(held_out):
+        return "hold", "First-red launcher evidence is incomplete."
+    if (mechanism["pairs_improved"] < thresholds["held_out_min_pairs_improved"]
+            or mechanism["pairs_reversed"] > thresholds["held_out_max_pairs_reversed"]):
+        return "hold", "The first-red launcher rejections did not meet the held-out paired rule."
+    return "eligible_for_review", "The pilot met its quality and first-red launcher gates for independent scoped review."
+
+
+def report(store, plan, *, live=False, fresh_pilot=False, red_argv_pilot=False):
+    fresh_pilot = fresh_pilot or red_argv_pilot
     rows = [store.read(row["id"], "experiment-terminal")
             or {**row, "disposition": "pending", "attempt": None} for row in plan]
-    pairs = [pair_result(*rows[i:i + 2]) for i in range(0, len(rows), 2)]
+    pairs = [pair_result(*rows[i:i + 2], red_argv_pilot=red_argv_pilot) for i in range(0, len(rows), 2)]
     tuning = [pair for pair in pairs if pair["task"] == TUNING]
     held_out = [pair for pair in pairs if pair["task"] != TUNING]
     historical_delta = None
@@ -176,12 +242,17 @@ def report(store, plan, *, live=False, fresh_pilot=False):
     summary = totals(rows)
     effects = paired_effects(held_out) if fresh_pilot else {}
     thresholds = FRESH_PILOT_THRESHOLDS if fresh_pilot else THRESHOLDS
+    if red_argv_pilot:
+        effects["first_red_launcher"] = first_red_pair_effects(held_out)
+        thresholds = RED_ARGV_PILOT_THRESHOLDS
     if not live:
         decision, reason = "hold", "Scripted trials exercise the comparison path. Live quality evidence is pending."
-    elif any(pair["acceptance_regression"] for pair in held_out):
+    elif sum(pair["acceptance_regression"] for pair in held_out) > thresholds["held_out_max_acceptance_regressions"]:
         decision, reason = "reject", "A scored held-out pair regressed from acceptance to rejection."
     elif summary["evidence_complete"] != len(plan):
         decision, reason = "hold", "Required exact-SHA grading coverage is incomplete."
+    elif red_argv_pilot:
+        decision, reason = red_argv_pilot_decision(tuning, held_out, effects["first_red_launcher"])
     elif held_out_gain is None or held_out_gain < thresholds["held_out_min_acceptance_gain"]:
         decision, reason = "hold", "The minimum held-out acceptance gain was not demonstrated."
     elif fresh_pilot:
