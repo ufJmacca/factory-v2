@@ -1,5 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
+import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
@@ -17,7 +20,10 @@ class PromotionTest(unittest.TestCase):
         self.store = Evidence(Path(directory))
         self.registry = Promotion(self.store)
         build = "a" * 40
-        configuration = self.store.blob(encode({"factory_sha": build}))
+        configuration = self.store.blob(encode({"factory_sha": build, "profile": {"max_attempts": 2}}))
+        self.base_sha = "f" * 40
+        self.checkpoint = self.store.blob(encode({"base_sha": self.base_sha, "head_sha": self.base_sha}))
+        self.grader = self.store.blob(b"fixture grader")
         common = {
             "schema_version": 1, "factory_sha": build, "configuration": configuration,
             "runtime": {"workflow_build": build, "worker_image": "sha256:" + "1" * 64,
@@ -58,9 +64,22 @@ class PromotionTest(unittest.TestCase):
 
     def admit(self, run_id, now, outcome_class="offline-python-fix", **changes):
         return self.registry.admit({
-            "run_id": run_id, "outcome_class": outcome_class, "approved_by": "fixture-reviewer",
+            "schema_version": 1, "run_id": run_id, "outcome_class": outcome_class,
+            "approved_by": "fixture-reviewer", "base_sha": self.base_sha,
+            "base_checkpoint": self.checkpoint, "grader_digest": self.grader,
+            "deadline_epoch": 300, "max_attempts": 1,
             "outcome": "Fix the fixture", **changes,
         }, now=now)
+
+    def tool_schema(self, request):
+        root = Path(__file__).resolve().parents[1]
+        argv = [sys.executable, "-m", "factory.codex_bridge", str(self.store.root), request["run_id"],
+                "fixture-workspace", self.base_sha]
+        result = subprocess.run(
+            argv, input=encode({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            env={**os.environ, "PYTHONPATH": str(root / "src")}, capture_output=True, check=True, timeout=10,
+        )
+        return json.loads(result.stdout)["result"]["tools"]
 
     def rollback(self, current, **changes):
         return {
@@ -89,6 +108,11 @@ class PromotionTest(unittest.TestCase):
         self.assertEqual(self.admit("candidate-run", 106), admitted)
         self.assertEqual(self.registry.transition(self.activation, now=202), active_receipt)
         self.assertEqual(self.registry.active()["generation"], 2)
+        baseline_schema = self.tool_schema(before)
+        candidate_schema = self.tool_schema(admitted)
+        self.assertEqual(baseline_schema, tool_definitions())
+        self.assertEqual(candidate_schema, tool_definitions(red_argv_guidance=True))
+        self.assertEqual(self.tool_schema(self.store.read("after-rollback", "request")), baseline_schema)
 
     def test_expired_mismatched_and_competing_approvals_leave_one_transition(self):
         for changed in (
@@ -125,6 +149,9 @@ class PromotionTest(unittest.TestCase):
             self.admit("first", 102, outcome="A different outcome")
         with self.assertRaises(Conflict):
             self.admit("caller-supplied-arm", 102, red_argv_guidance=True)
+        for index, changes in enumerate(({"max_attempts": 3}, {"deadline_epoch": 102}, {"base_sha": "d" * 40})):
+            with self.subTest(changes=changes), self.assertRaises(Conflict):
+                self.admit(f"invalid-delivery-{index}", 102, **changes)
         self.assertEqual(self.admit("second", 103)["factory_digest"], self.candidate)
         self.assertEqual(self.admit("over-cap", 104)["factory_digest"], self.baseline)
         self.assertEqual(self.admit("after-window", 150)["factory_digest"], self.baseline)
@@ -150,6 +177,21 @@ class PromotionTest(unittest.TestCase):
             self.registry.observe({**event, "id": "late"}, now=150)
         with self.assertRaises(Conflict):
             self.registry.observe({**event, "id": "out-of-cohort", "run_id": "circuit-closed"}, now=104)
+
+    def test_unknown_cost_prevents_an_all_clear(self):
+        self.registry.transition(self.activation, now=100)
+        self.admit("cost-watch", 101)
+        self.assertEqual(self.registry.report(1)["decision"], "incomplete")
+        self.registry.observe({
+            "id": "usage", "run_id": "cost-watch", "observer": "reviewer",
+            "metrics": {"reopens": 0, "rollbacks": 0, "reviewer_seconds": 30, "cost_microusd": None},
+        }, now=103)
+        self.assertEqual(self.registry.report(1)["decision"], "incomplete")
+        self.registry.observe({
+            "id": "invoice", "run_id": "cost-watch", "observer": "reviewer",
+            "metrics": {"reopens": 0, "rollbacks": 0, "reviewer_seconds": 0, "cost_microusd": 500001},
+        }, now=104)
+        self.assertEqual(self.registry.report(1)["decision"], "rollback_required")
 
     def test_expiry_ends_an_underfilled_cohort(self):
         self.registry.transition(self.activation, now=100)

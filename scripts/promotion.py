@@ -9,7 +9,7 @@ import re
 from time import time
 
 from factory.codex_bridge import tool_definitions
-from factory.evidence import Conflict, Evidence, digest, encode, validate_run_id
+from factory.evidence import Conflict, Evidence, digest, encode
 
 
 REGISTRY = "factory-promotion"
@@ -56,7 +56,7 @@ class Promotion:
     def _blob(self, reference):
         return json.loads(self.store.read_blob(reference))
 
-    def _version(self, reference):
+    def version(self, reference):
         version = self._blob(reference)
         guidance = version.get("red_argv_guidance")
         require(version.keys() == ADMISSION_FIELDS | {"schema_version", "source_inputs_sha256", "tool_definition_sha256"}
@@ -68,7 +68,7 @@ class Promotion:
 
     def initialize(self, baseline):
         with self.store.lock(REGISTRY):
-            require(self._version(baseline)["red_argv_guidance"] is False, "the baseline must use baseline guidance")
+            require(self.version(baseline)["red_argv_guidance"] is False, "the baseline must use baseline guidance")
             return self.store.record(REGISTRY, "baseline", {"generation": 0, "digest": baseline})
 
     def _history(self):
@@ -95,7 +95,7 @@ class Promotion:
                 and integer(scope["max_runs"], 1) and integer(scope["observation_seconds"], 1)
                 and metrics_valid(scope["limits"]), "activation requires an explicit bounded cohort")
         target = approval["target"]
-        candidate = self._version(target)
+        candidate = self.version(target)
         build = candidate["runtime"]["workflow_build"]
         review = self._blob(approval["review"])
         require(review.get("decision") == "promote" and named(review.get("reviewer"))
@@ -109,7 +109,7 @@ class Promotion:
                 and parity.get("source_inputs_sha256") == candidate["source_inputs_sha256"]
                 and parity.get("worker_image") == candidate["runtime"]["worker_image"],
                 "merged effective inputs lack matching parity evidence")
-        initial = self._version(baseline)
+        initial = self.version(baseline)
         require(candidate == {**initial, "red_argv_guidance": True,
                               "tool_definition_sha256": candidate["tool_definition_sha256"]},
                 "candidate differs from the reviewed baseline outside red argv guidance")
@@ -171,10 +171,11 @@ class Promotion:
                     else:
                         totals[metric] += amount
         exceeded = [metric for metric in METRICS if totals[metric] > scope["limits"][metric]]
+        decision = "within_limits" if observed and observed == len(requests) and not any(unknown.values()) else "incomplete"
         return {
             "generation": generation, "cohort": scope["cohort"], "admitted": len(requests),
             "observed": observed, "totals": totals, "unknown": unknown, "exceeded": exceeded,
-            "decision": "rollback_required" if exceeded else "within_limits",
+            "decision": "rollback_required" if exceeded else decision,
         }
 
     def report(self, generation):
@@ -191,9 +192,11 @@ class Promotion:
         reserved = ADMISSION_FIELDS | {"worker_image", "transport", "factory_digest", "factory_cohort",
                                       "admission_sha256", "admitted_at", "evaluation"}
         require(isinstance(approved, dict) and not reserved.intersection(approved)
-                and identity(approved.get("outcome_class")) and named(approved.get("approved_by"))
-                and named(approved.get("outcome")), "admit an approved outcome without runtime overrides")
-        run_id = validate_run_id(approved.get("run_id"))
+                and identity(approved.get("run_id")) and identity(approved.get("outcome_class"))
+                and named(approved.get("approved_by")) and named(approved.get("outcome"))
+                and type(approved.get("schema_version")) is int and approved["schema_version"] == 1,
+                "admit an approved outcome without runtime overrides")
+        run_id = approved["run_id"]
         require(run_id != REGISTRY, "run ID is reserved for promotion")
         reference = digest(encode(approved))
         with self.store.lock(REGISTRY):
@@ -213,7 +216,17 @@ class Promotion:
                     if report["admitted"] < scope["max_runs"] and not report["exceeded"]:
                         selected = activation["active"]["digest"]
                         generation = activation["active"]["generation"]
-            version = self._version(selected)
+            version = self.version(selected)
+            profile = self._blob(version["configuration"])
+            attempts = approved.get("max_attempts")
+            expires = approved.get("deadline_epoch")
+            base = approved.get("base_sha")
+            require(revision(base) and integer(attempts, 1) and attempts <= profile["profile"]["max_attempts"]
+                    and deadline(expires) and now < expires, "invalid delivery base, attempt limit, or deadline")
+            checkpoint = self._blob(approved["base_checkpoint"])
+            require(checkpoint.get("base_sha") == checkpoint.get("head_sha") == base,
+                    "delivery checkpoint does not start at the approved base")
+            self.store.read_blob(approved["grader_digest"])
             runtime = version["runtime"]
             return self.store.admit({
                 **approved, **{key: version[key] for key in ADMISSION_FIELDS},
